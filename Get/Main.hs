@@ -30,12 +30,12 @@ commands =
       &= help "Install libraries in the local project."
       &= details [ "Examples:"
                  , "  elm-get install            # install everything needed by build.json"
-                 , "  elm-get install tom/Array  # install a specific github repo" ]
+                 , "  elm-get install tom/Array  # install a specific GitHub repo" ]
     , Update { libs = [] &= args &= typ "LIBRARY" }
       &= help "Check for updates to any local libraries, ask to upgrade."
       &= details [ "Examples:"
                  , "  elm-get update             # check for updates to local libraries"
-                 , "  elm-get update tom/Array   # update from a specific github repo" ]
+                 , "  elm-get update tom/Array   # update from a specific GitHub repo" ]
     , Publish
       &= help "Publish project to the central repository."
       &= details []

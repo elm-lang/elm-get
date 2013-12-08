@@ -59,7 +59,7 @@ get name maybeVersion =
 
 {-| Check to see that the requested version number exists. In the case that no
 version number is requested, use the latest tagless version number in the registry.
-If the repo is not in the registry, warn the user and check on github.
+If the repo is not in the registry, warn the user and check on GitHub.
 -}
 getVersion :: N.Name -> Maybe String -> ErrorT String IO V.Version
 getVersion name maybeVersion' =
@@ -91,7 +91,7 @@ getVersion name maybeVersion' =
           Just vs -> return vs
           Nothing -> do
             Utils.out $ "Warning: library " ++ show name ++
-                        " is not registered publicly. Checking github..."
+                        " is not registered publicly. Checking GitHub..."
             tags <- lines <$> Utils.git [ "tag", "--list" ]
             return $ Maybe.mapMaybe V.fromString tags
 
@@ -104,5 +104,5 @@ getVersion name maybeVersion' =
 
       errorNoMatch version =
           throwError $ unlines 
-          [ "could not find version " ++ show version ++ " on github."
+          [ "could not find version " ++ show version ++ " on GitHub."
           ]
