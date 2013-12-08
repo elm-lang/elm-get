@@ -50,7 +50,7 @@ verifyExposedModules modules =
           let path = Utils.moduleToElmFile modul in
           do exists <- liftIO $ doesFileExist path
              when (not exists) $ throwError $
-                 "Cannod find module " ++ modul ++ " at " ++ path
+                 "Cannot find module " ++ modul ++ " at " ++ path
 
 verifyVersion :: N.Name -> V.Version -> ErrorT String IO ()
 verifyVersion name version =
