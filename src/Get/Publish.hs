@@ -38,17 +38,16 @@ immediateNext prev next = check 0 $ zip (prev ++ repeat 0) next
   where check i ls =
           case ls of
             [] -> Left (i, SameVersions)
-            (x, y) : rest ->
-              case () of
-                _ | x == y -> check (i + 1) rest
-                  | x + 1 == y -> checkZeros i (i + 1) rest
-                  | otherwise -> Left $ (i, NotSuccessor x y)
+            (x, y) : rest
+              | x == y -> check (i + 1) rest
+              | x + 1 == y -> checkZeros i (i + 1) rest
+              | otherwise -> Left (i, NotSuccessor x y)
 
         checkZeros result pos ls =
           case ls of
             [] -> Right result
             (_, 0) : rest -> checkZeros result (pos + 1) rest
-            (_, y) : _ -> Left $ (pos, NotZero y)
+            (_, y) : _ -> Left (pos, NotZero y)
 
 showIndexPos :: IndexPos -> String
 showIndexPos x =
