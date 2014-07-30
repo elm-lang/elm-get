@@ -21,6 +21,43 @@ import qualified Get.Registry as R
 import qualified Utils.Commands as Cmd
 import qualified Utils.Paths as Path
 
+data VersionError
+  = NotSuccessor Int Int
+  | NotZero Int
+  | SameVersions
+  deriving (Show)
+
+type IndexPos = Int
+
+-- | Check two version numbers to see whether one of them follows another
+--   If that's the case, return an index in version number when increment
+--   takes place. If that's not the case, return an error with position
+--   where that error happened
+immediateNext :: [Int] -> [Int] -> Either (IndexPos, VersionError) IndexPos
+immediateNext prev next = check 0 $ zip (prev ++ repeat 0) next
+  where check i ls =
+          case ls of
+            [] -> Left (i, SameVersions)
+            (x, y) : rest ->
+              case () of
+                _ | x == y -> check (i + 1) rest
+                  | x + 1 == y -> checkZeros i (i + 1) rest
+                  | otherwise -> Left $ (i, NotSuccessor x y)
+
+        checkZeros result pos ls =
+          case ls of
+            [] -> Right result
+            (_, 0) : rest -> checkZeros result (pos + 1) rest
+            (_, y) : _ -> Left $ (pos, NotZero y)
+
+showIndexPos :: IndexPos -> String
+showIndexPos x =
+  case x of
+    0 -> "major position"
+    1 -> "minor position"
+    2 -> "patch position"
+    _ -> "position " ++ show x
+
 publish :: ErrorT String IO ()
 publish =
   do deps <- getDeps
@@ -118,16 +155,27 @@ verifyVersion name version =
        case response of
          Nothing -> return ()
          Just versions ->
-             do let maxVersion = maximum (version:versions)
-                when (version < maxVersion) $ throwError $ unlines
-                     [ "a later version has already been released."
-                     , "Use a version number higher than " ++ show maxVersion ]
-                checkSemanticVersioning maxVersion
+           do let prevVersion = maximum $ filter (<= version) versions
+              checkSemanticVersioning prevVersion version
 
        checkTag version
 
     where
-      checkSemanticVersioning _ = return ()
+      checkSemanticVersioning (V.V prev _) (V.V curr _) =
+        case immediateNext prev curr of
+          Right _ -> return ()
+          Left (pos, err) ->
+            throwError $ case err of
+              NotZero nz ->
+                concat ["Expected zero at ", showIndexPos pos, " got ", show nz]
+              NotSuccessor v1 v2 ->
+                concat ["Version at ", showIndexPos pos, " changed from ", show v1
+                       , " to ", show v2, ", which is incorrect - you must "
+                       , "increase version number at most by one"]
+              SameVersions ->
+                unlines $
+                [ "This version has already been released!"
+                , "Increase patch number from latest version to release in current minor branch" ]
 
       checkTag version = do
         tags <- lines <$> Cmd.git [ "tag", "--list" ]
