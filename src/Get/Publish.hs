@@ -17,45 +17,10 @@ import qualified Elm.Internal.Paths as EPath
 import qualified Elm.Internal.Version as V
 
 import Get.Dependencies (defaultDeps)
+import Utils.SemverCheck
 import qualified Get.Registry as R
 import qualified Utils.Commands as Cmd
 import qualified Utils.Paths as Path
-
-data VersionError
-  = NotSuccessor Int Int
-  | NotZero Int
-  | SameVersions
-  deriving (Show)
-
-type IndexPos = Int
-
--- | Check two version numbers to see whether one of them follows another
---   If that's the case, return an index in version number when increment
---   takes place. If that's not the case, return an error with position
---   where that error happened
-immediateNext :: [Int] -> [Int] -> Either (IndexPos, VersionError) IndexPos
-immediateNext prev next = check 0 $ zip (prev ++ repeat 0) next
-  where check i ls =
-          case ls of
-            [] -> Left (i, SameVersions)
-            (x, y) : rest
-              | x == y -> check (i + 1) rest
-              | x + 1 == y -> checkZeros i (i + 1) rest
-              | otherwise -> Left (i, NotSuccessor x y)
-
-        checkZeros result pos ls =
-          case ls of
-            [] -> Right result
-            (_, 0) : rest -> checkZeros result (pos + 1) rest
-            (_, y) : _ -> Left (pos, NotZero y)
-
-showIndexPos :: IndexPos -> String
-showIndexPos x =
-  case x of
-    0 -> "major position"
-    1 -> "minor position"
-    2 -> "patch position"
-    _ -> "position " ++ show x
 
 publish :: ErrorT String IO ()
 publish =
