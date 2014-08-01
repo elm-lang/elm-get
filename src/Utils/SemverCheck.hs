@@ -8,6 +8,7 @@ import Control.Monad.Error (ErrorT, noMsg, strMsg, Error, throwError)
 import Control.Monad.Trans (lift)
 import Data.Aeson hiding (Number)
 import Data.Aeson.Types (Parser)
+import Data.Char (toLower)
 import Data.List (isPrefixOf)
 import Data.Map (Map)
 import Data.Text (Text)
@@ -17,15 +18,31 @@ data VersionError
   = NotSuccessor Int Int
   | NotZero Int
   | SameVersions
+  | TooLongVersion
   deriving (Show)
 
-type IndexPos = Int
+data IndexPos
+  = Major
+  | Minor
+  | Patch
+  deriving (Show)
+
+showIndexPos :: IndexPos -> String
+showIndexPos x = map toLower (show x) ++ " position"
+
+buildIndexPos :: Int -> Either (Int, VersionError) IndexPos
+buildIndexPos x =
+  case x of
+    0 -> Right Major
+    1 -> Right Minor
+    2 -> Right Patch
+    _ -> Left (x, TooLongVersion)
 
 -- | Check two version numbers to see whether one of them follows another
 --   If that's the case, return an index in version number when increment
 --   takes place. If that's not the case, return an error with position
 --   where that error happened
-immediateNext :: [Int] -> [Int] -> Either (IndexPos, VersionError) IndexPos
+immediateNext :: [Int] -> [Int] -> Either (Int, VersionError) IndexPos
 immediateNext prev next = check 0 $ zip (prev ++ repeat 0) next
   where check i ls =
           case ls of
@@ -37,17 +54,9 @@ immediateNext prev next = check 0 $ zip (prev ++ repeat 0) next
 
         checkZeros result pos ls =
           case ls of
-            [] -> Right result
+            [] -> buildIndexPos result
             (_, 0) : rest -> checkZeros result (pos + 1) rest
             (_, y) : _ -> Left (pos, NotZero y)
-
-showIndexPos :: IndexPos -> String
-showIndexPos x =
-  case x of
-    0 -> "major position"
-    1 -> "minor position"
-    2 -> "patch position"
-    _ -> "position " ++ show x
 
 data Compatibility
   = Incompatible
@@ -75,11 +84,16 @@ data VariableType
   | Regular
   deriving (Eq, Show)
 
+isSpecial :: String -> String -> Bool
+isSpecial prefix str =
+  let n = length prefix
+  in (prefix `isPrefixOf` str) && (all (== '\'') $ drop n str)
+
 variableType :: String -> VariableType
 variableType str
-  | "comparable" `isPrefixOf` str = Comparable
-  | "appendable" `isPrefixOf` str = Appendable
-  | "number" `isPrefixOf` str = Number
+  | isSpecial "comparable" str = Comparable
+  | isSpecial "appendable" str = Appendable
+  | isSpecial "number" str = Number
   | otherwise = Regular
 
 isCompatible :: VariableType -> VariableType -> Compatibility
@@ -140,10 +154,11 @@ buildRenaming env (v1, v2) =
 
            "record" ->
              do (ext1, ext2) <- extract "extensions"
-                env1 <- case (ext1, ext2) of
-                  (Nothing, Nothing) -> return env
-                  (Just v1, Just v2) -> buildRenaming env (v1, v2)
-                  _ -> throwError DifferentTypes
+                env1 <-
+                  case (ext1, ext2) of
+                    (Nothing, Nothing) -> return env
+                    (Just v1, Just v2) -> buildRenaming env (v1, v2)
+                    _ -> throwError DifferentTypes
 
                 (fs1 :: [(String, Value)], fs2) <- extract "field"
                 assert (length fs1 == length fs2)

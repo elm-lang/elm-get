@@ -17,7 +17,7 @@ import qualified Elm.Internal.Paths as EPath
 import qualified Elm.Internal.Version as V
 
 import Get.Dependencies (defaultDeps)
-import Utils.SemverCheck
+import qualified Utils.SemverCheck as Semver
 import qualified Get.Registry as R
 import qualified Utils.Commands as Cmd
 import qualified Utils.Paths as Path
@@ -126,17 +126,20 @@ verifyVersion name version =
 
     where
       checkSemanticVersioning (V.V prev _) (V.V curr _) =
-        case immediateNext prev curr of
+        case Semver.immediateNext prev curr of
           Right _ -> return ()
           Left (pos, err) ->
             throwError $ case err of
-              NotZero nz ->
-                concat ["Expected zero at ", showIndexPos pos, " got ", show nz]
-              NotSuccessor v1 v2 ->
-                concat ["Version at ", showIndexPos pos, " changed from ", show v1
+              Semver.TooLongVersion ->
+                concat ["You should use no more than three indices"
+                       , "in your version number"]
+              Semver.NotZero nz ->
+                concat ["Expected zero at ", show pos, " got ", show nz]
+              Semver.NotSuccessor v1 v2 ->
+                concat ["Version at ", show pos, " changed from ", show v1
                        , " to ", show v2, ", which is incorrect - you must "
                        , "increase version number at most by one"]
-              SameVersions ->
+              Semver.SameVersions ->
                 unlines $
                 [ "This version has already been released!"
                 , "Increase patch number from latest version to release in current minor branch" ]
