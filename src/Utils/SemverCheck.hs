@@ -152,7 +152,7 @@ buildRenaming env (v1, v2) =
                       case Map.lookup name map2 of
                         Just val2 -> buildRenaming e (val, val2)
                         Nothing -> throwError DifferentTypes
-                foldM f env fs1
+                foldM f env1 fs1
 
            _ -> fail $ "Unknown tag " ++ tag1
 
