@@ -107,53 +107,53 @@ buildRenaming env (v1, v2) =
       do (tag1 :: String, tag2) <- extract "tag"
          when (tag1 /= tag2) $ throwError DifferentTypes
          case tag1 of
-           _ | tag1 == "name" ->
-               do (var1, var2) <- extract "name"
-                  case Map.lookup var1 env of
-                    Just rvar ->
-                      case (rvar == var2) of
-                        True -> return env
-                        False -> throwError $ DifferentRenaming var1 var2 rvar
-                    Nothing ->
-                      return (Map.insert var1 var2 env)
+           "var" ->
+             do (var1, var2) <- extract "name"
+                case Map.lookup var1 env of
+                  Just rvar ->
+                    case (rvar == var2) of
+                      True -> return env
+                      False -> throwError $ DifferentRenaming var1 var2 rvar
+                  Nothing ->
+                    return (Map.insert var1 var2 env)
 
-             | tag1 == "function" ->
-               do (ts1, ts2) <- extract "args"
-                  (r1, r2) <- extract "result"
+           "function" ->
+             do (ts1, ts2) <- extract "args"
+                (r1, r2) <- extract "result"
 
-                  assert (length ts1 == length ts2)
-                  env1 <- foldM buildRenaming env (zip ts1 ts2)
-                  buildRenaming env1 (r1, r2)
+                assert (length ts1 == length ts2)
+                env1 <- foldM buildRenaming env (zip ts1 ts2)
+                buildRenaming env1 (r1, r2)
 
-             | tag1 == "adt" ->
-               do (n1 :: String, n2) <- extract "name"
-                  assert (n1 == n2)
+           "adt" ->
+             do (n1 :: String, n2) <- extract "name"
+                assert (n1 == n2)
 
-                  (a1, a2) <- extract "args"
-                  assert (length a1 == length a2)
-                  foldM buildRenaming env (zip a1 a2)
+                (a1, a2) <- extract "args"
+                assert (length a1 == length a2)
+                foldM buildRenaming env (zip a1 a2)
 
-             | tag1 == "alias" ->
-               do (n1 :: String, n2) <- extract "alias"
-                  assert (n1 == n2)
-                  return env
+           "alias" ->
+             do (n1 :: String, n2) <- extract "alias"
+                assert (n1 == n2)
+                return env
 
-             | tag1 == "record" ->
-               do (ext1, ext2) <- extract "extensions"
-                  env1 <- case (ext1, ext2) of
-                    (Nothing, Nothing) -> return env
-                    (Just v1, Just v2) -> buildRenaming env (v1, v2)
-                    _ -> throwError DifferentTypes
+           "record" ->
+             do (ext1, ext2) <- extract "extensions"
+                env1 <- case (ext1, ext2) of
+                  (Nothing, Nothing) -> return env
+                  (Just v1, Just v2) -> buildRenaming env (v1, v2)
+                  _ -> throwError DifferentTypes
 
-                  (fs1 :: [(String, Value)], fs2) <- extract "field"
-                  assert (length fs1 == length fs2)
-                  let map2 = Map.fromList fs2
-                      f e (name, val) =
-                        case Map.lookup name map2 of
-                          Just val2 -> buildRenaming e (val, val2)
-                          Nothing -> throwError DifferentTypes
-                  foldM f env fs1
+                (fs1 :: [(String, Value)], fs2) <- extract "field"
+                assert (length fs1 == length fs2)
+                let map2 = Map.fromList fs2
+                    f e (name, val) =
+                      case Map.lookup name map2 of
+                        Just val2 -> buildRenaming e (val, val2)
+                        Nothing -> throwError DifferentTypes
+                foldM f env fs1
 
-             | otherwise -> fail $ "Unknown tag " ++ tag1
+           _ -> fail $ "Unknown tag " ++ tag1
 
     _ -> fail "Trying to parse types from non-objects"
