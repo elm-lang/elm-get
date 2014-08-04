@@ -1,16 +1,17 @@
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Utils.SemverCheck where
 
-import Control.Monad (when, foldM)
-import Control.Monad.Error (ErrorT, noMsg, strMsg, Error, throwError)
+import Control.Monad (when, foldM, forM)
+import Control.Monad.Error (ErrorT, noMsg, strMsg, Error, throwError, runErrorT)
 import Control.Monad.Trans (lift)
 import Data.Aeson hiding (Number)
 import Data.Aeson.Types (Parser)
 import Data.Char (toLower)
 import Data.List (isPrefixOf)
 import Data.Map (Map)
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Map as Map
 
@@ -62,7 +63,7 @@ data Compatibility
   = Incompatible
   | Compatible
   | Same
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Show)
 
 type Var = String
 
@@ -107,15 +108,91 @@ isCompatible ty1 ty2 =
 type VarRenaming = Map Var Var
 type RenameContext = ErrorT NonCorrespondence Parser
 
+data BindingState
+  = Added
+  | Existing Compatibility
+  | Removed
+  deriving (Eq, Show)
+
+data ComparisonEntry = ComparisonEntry
+    { name :: String
+    , state :: BindingState
+    } deriving (Show)
+
+generalExtract :: FromJSON a => Object -> Object -> Text -> Parser (a, a)
+generalExtract o1 o2 tag =
+  do v1 <- (o1 .: tag)
+     v2 <- (o2 .: tag)
+     return (v1, v2)
+
+expectObject :: String -> Value -> Parser Object
+expectObject name val =
+  case val of
+    Object o -> return o
+    _ -> fail $ "Expected JSON object while parsing " ++ name
+
+-- | Build a list of differences between two versions of a module
+buildModuleComparison :: (Value, Value) -> Parser [ComparisonEntry]
+buildModuleComparison (v1, v2) =
+  case (v1, v2) of
+    (Object o1, Object o2) ->
+      let extract :: FromJSON a => Text -> Parser (a, a)
+          extract = generalExtract o1 o2
+
+          extractEntry :: Value -> Parser (Maybe (String, Value))
+          extractEntry val =
+            do o <- expectObject "binding information" val
+               exposed <- o .: "exposed"
+               name <- o .: "name"
+               typ <- o .: "type"
+               return $ if exposed
+                        then Just (name, typ)
+                        else Nothing
+
+          addValue :: Map String Value -> Value -> Parser (Map String Value)
+          addValue env val =
+            do entry <- extractEntry val
+               case entry of
+                 Nothing -> return env
+                 Just (name, typ) -> return $ Map.insert name typ env
+
+          buildEnv :: [Value] -> Parser (Map String Value)
+          buildEnv = foldM addValue Map.empty
+
+          buildEntry :: Map String Value -> (String, Value) -> Parser BindingState
+          buildEntry env (name, typ) =
+            case Map.lookup name env of
+              Nothing -> return Added
+              Just typ2 ->
+                do compat <- runErrorT $ buildRenaming Map.empty (typ, typ2)
+                   return $
+                     case compat of
+                       Left _ -> Existing Incompatible
+                       Right _ -> Existing Compatible -- TODO: change me
+      in
+      do (vs1, vs2) <- extract "values"
+         env2 <- buildEnv vs2
+         entries <- forM vs1 $ \v ->
+           do entry <- extractEntry v
+              case entry of
+                Nothing -> return Nothing
+                Just tp@(name, _) ->
+                  do state <- buildEntry env2 tp
+                     return $ Just $ ComparisonEntry name state
+         return $ catMaybes entries
+    _ -> fail "Tried to parse module information from non-object"
+
+-- | Function to build a renaming of variables application of which transforms
+--   first type to another. Type signature represented as JSON values,
+--   as serialized by Elm.Internal.Documentation in "Elm" library
+--   First value is of newer module, second is of older. TODO: CHECK
 buildRenaming :: VarRenaming -> (Value, Value) -> RenameContext VarRenaming
 buildRenaming env (v1, v2) =
   case (v1, v2) of
     (Object o1, Object o2) ->
       let extract :: FromJSON a => Text -> RenameContext (a, a)
-          extract tag =
-            do v1 <- lift (o1 .: tag)
-               v2 <- lift (o2 .: tag)
-               return (v1, v2)
+          extract = lift . generalExtract o1 o2
+
           assert cond = when (not cond) $ throwError DifferentTypes
       in
       do (tag1 :: String, tag2) <- extract "tag"
