@@ -13,6 +13,7 @@ import Data.List (isPrefixOf)
 import Data.Map (Map)
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
+import qualified Data.Vector as V
 import qualified Data.Map as Map
 
 data VersionError
@@ -130,6 +131,32 @@ expectObject name val =
   case val of
     Object o -> return o
     _ -> fail $ "Expected JSON object while parsing " ++ name
+
+-- | Build a map of differences between two "docs.json"
+buildDocsComparison :: (Value, Value) -> Parser (Map String [ComparisonEntry])
+buildDocsComparison (v1, v2) =
+  let moduleName :: Value -> Parser String
+      moduleName v =
+        do o <- expectObject "module information" v
+           o .: "name"
+
+      addModule env v =
+        do name <- moduleName v
+           return $ Map.insert name v env
+
+      processModule oldEnv compMap v =
+        do name <- moduleName v
+           case Map.lookup name oldEnv of
+             Nothing -> return compMap
+             Just v2 ->
+               do comparison <- buildModuleComparison (v, v2)
+                  return $ Map.insert name comparison compMap
+  in
+  case (v1, v2) of
+    (Array a1, Array a2) ->
+      do env2 <- V.foldM addModule Map.empty a2
+         V.foldM (processModule env2) Map.empty a1
+    _ -> fail "Trying to parse documents from non-array"
 
 -- | Build a list of differences between two versions of a module
 buildModuleComparison :: (Value, Value) -> Parser [ComparisonEntry]
