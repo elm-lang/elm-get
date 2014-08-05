@@ -35,9 +35,9 @@ publish =
      verifyMetadata deps
      verifyExposedModulesExist exposedModules
      verifyVersion name version
-     withCleanup $ do
-       generateDocs exposedModules
-       R.register name version Path.combinedJson
+     withCleanup $
+       do generateDocs exposedModules
+          R.register name version Path.combinedJson
      Cmd.out "Success!"
 
 exitAtFail :: ErrorT String IO a -> ErrorT String IO a
@@ -46,9 +46,8 @@ exitAtFail action =
      case either of
        Right deps -> return deps
        Left err ->
-           liftIO $ do
-             hPutStrLn stderr $ "\nError: " ++ err
-             exitFailure
+           liftIO $ do hPutStrLn stderr $ "\nError: " ++ err
+                       exitFailure
 
 getDeps :: ErrorT String IO D.Deps
 getDeps = exitAtFail $ D.depsAt A.dependencyFile
@@ -144,10 +143,10 @@ verifyVersion name version =
                 [ "This version has already been released!"
                 , "Increase patch number from latest version to release in current minor branch" ]
 
-      checkTag version = do
-        tags <- lines <$> Cmd.git [ "tag", "--list" ]
-        let v = show version
-        when (show version `notElem` tags) $
+      checkTag version =
+        do tags <- lines <$> Cmd.git [ "tag", "--list" ]
+           let v = show version
+           when (show version `notElem` tags) $
              throwError (unlines (tagMessage v))
 
       tagMessage v =
@@ -162,20 +161,20 @@ verifyVersion name version =
 
 generateDocs :: [String] -> ErrorT String IO ()
 generateDocs modules =
-    do forM elms $ \path -> Cmd.run "elm-doc" [path]
-       liftIO $ do
-         let path = Path.combinedJson
-         BS.writeFile path "[\n"
-         let addCommas = List.intersperse (BS.appendFile path ",\n")
-         sequence_ $ addCommas $ map append jsons
-         BS.appendFile path "\n]"
+    do forM elms $ \path -> Cmd.run "elm" ["--generate-docs", path]
+       liftIO $
+         do let path = Path.combinedJson
+            BS.writeFile path "[\n"
+            let addCommas = List.intersperse (BS.appendFile path ",\n")
+            sequence_ $ addCommas $ map append jsons
+            BS.appendFile path "\n]"
 
     where
       elms = map Path.moduleToElmFile modules
       jsons = map Path.moduleToJsonFile modules
 
       append :: FilePath -> IO ()
-      append path = do
-        json <- BS.readFile path
-        BS.length json `seq` return ()
-        BS.appendFile Path.combinedJson json
+      append path =
+        do json <- BS.readFile path
+           BS.length json `seq` return ()
+           BS.appendFile Path.combinedJson json
