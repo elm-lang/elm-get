@@ -9,7 +9,6 @@ import Data.Aeson (decode, FromJSON, ToJSON, encode)
 import Data.List (foldl')
 import Data.Map (Map)
 import GHC.Generics (Generic)
-import Network.HTTP.Client (responseBody, httpLbs)
 import System.FilePath ((</>))
 import qualified Data.ByteString.Lazy as BS
 import qualified Data.Map as M
@@ -57,15 +56,6 @@ cacheWrapper uncached dir fileName =
      (liftIO $ readSomething)
      (\x -> liftIO $ writeSomething x)
 
--- | Try to read a JSON-encoded value from an URL. Throws an error in case of parse error
-decodeFromUrl :: FromJSON a => String -> ErrorT String IO a
-decodeFromUrl url =
-  do result <- Http.send url $ \request manager ->
-       fmap (decode . responseBody) $ httpLbs request manager
-     case result of
-       Just v -> return v
-       Nothing -> throwError $ "Can't read value from " ++ url
-
 -- | Library description as used in library.elm-lang.org/libraries.json
 data LibraryInfo = LibraryInfo
     { name :: String
@@ -86,19 +76,26 @@ readLibraries :: ErrorT String IO LibraryDB
 readLibraries =
   let dir = A.packagesDirectory </> "_elm_get_cache"
       fileName = "libraries.json"
-      downloadAction = decodeFromUrl $ Reg.domain ++ "/libraries.json"
+      downloadAction = Http.decodeFromUrl $ Reg.domain ++ "/libraries.json"
   in fmap (buildMap name) $ cacheWrapper downloadAction dir fileName
+
+firstSuccess :: MonadError e m => e -> [m a] -> m a
+firstSuccess err = foldl' catchIgnore (throwError err)
+  where catchIgnore x y = catchError x (const y)
 
 readDependencies :: String -> V.Version -> ErrorT String IO D.Deps
 readDependencies name version =
-  let fullUrl = concat [ Reg.domain , "/catalog/"
-                       , name
-                       , "/", show version
-                       , "/", A.dependencyFile
-                       ]
+  let url fname =
+        concat [ Reg.domain , "/catalog/"
+               , name
+               , "/", show version
+               , "/", fname
+               ]
+      urls = [url A.dependencyFile, url "elm_dependencies.json"]
       dir = A.packagesDirectory </> "_elm_get_cache" </> name
       fileName = show version ++ ".json"
-      downloadAction = decodeFromUrl fullUrl
+      msg = "Error while downloading package " ++ show name ++ " information"
+      downloadAction = firstSuccess msg $ map Http.decodeFromUrl urls
   in cacheWrapper downloadAction dir fileName
 
 data SolverState = SolverState
@@ -128,20 +125,13 @@ tryAll solutions =
 restorePinned :: Map N.Name V.Version -> (SolverState -> SolverState)
 restorePinned pinned s = s { ssPinnedVersions = pinned }
 
--- | Change all occurrences of first element to second in a list
-replace :: Eq a => a -> a -> [a] -> [a]
-replace c1 c2 = map (\x -> if x == c1 then c2 else x)
-
-resolvableName :: N.Name -> String
-resolvableName = replace '/' '-' . show
-
 getDependencies :: N.Name -> V.Version -> SolverContext D.Deps
 getDependencies name version =
   do libsMap <- gets ssLibrariesMap
      case M.lookup (name, version) libsMap of
        Just deps -> return deps
        Nothing ->
-         do deps <- lift . lift $ readDependencies (resolvableName name) version
+         do deps <- lift . lift $ readDependencies (N.toFilePath name) version
             modify (\s -> s { ssLibrariesMap = M.insert (name, version) deps libsMap })
             return deps
 

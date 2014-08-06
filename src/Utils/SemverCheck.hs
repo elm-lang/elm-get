@@ -169,12 +169,13 @@ buildModuleComparison (v1, v2) =
           extractEntry :: Value -> Parser (Maybe (String, Value))
           extractEntry val =
             do o <- expectObject "binding information" val
-               exposed <- o .: "exposed"
+               exposed <- o .:? "exposed"
                name <- o .: "name"
                typ <- o .: "type"
-               return $ if exposed
-                        then Just (name, typ)
-                        else Nothing
+               return $
+                 case exposed of
+                   Just True -> Just (name, typ)
+                   _ -> Nothing
 
           addValue :: Map String Value -> Value -> Parser (Map String Value)
           addValue env val =
