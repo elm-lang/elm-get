@@ -7,6 +7,7 @@ import Data.Aeson (decode)
 import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Lazy as BS
 import qualified Data.List as List
+import qualified Data.Map as Map
 import qualified Data.Maybe as Maybe
 import System.Directory
 import System.Exit
@@ -38,7 +39,7 @@ publish =
      withCleanup $
        do generateDocs exposedModules
           case prev of
-            Just prevVersion -> compareDocs name prevVersion
+            Just (prevVersion, pos) -> compareDocs name prevVersion pos
             Nothing -> return ()
           R.register name version Path.combinedJson
      Cmd.out "Success!"
@@ -104,7 +105,7 @@ verifyMetadata deps =
             then Just msg
             else Nothing
 
-verifyVersion :: N.Name -> V.Version -> ErrorT String IO (Maybe V.Version)
+verifyVersion :: N.Name -> V.Version -> ErrorT String IO (Maybe (V.Version, Semver.IndexPos))
 verifyVersion name version =
     do response <- R.versions name
        prevVersion <-
@@ -112,29 +113,32 @@ verifyVersion name version =
            Nothing -> return Nothing
            Just versions ->
              do let prevVersion = maximum $ filter (<= version) versions
-                checkSemanticVersioning prevVersion version
-                return (Just prevVersion)
+                pos <- checkSemanticVersioning prevVersion version
+                return $ Just (prevVersion, pos)
 
-       checkTag version
+       --checkTag version
        return prevVersion
 
     where
-      checkSemanticVersioning (V.V prev _) (V.V curr _) =
+      checkSemanticVersioning pv@(V.V prev _) cv@(V.V curr _) =
         case Semver.immediateNext prev curr of
-          Right _ -> return ()
+          Right pos -> return pos
           Left (pos, err) ->
             throwError $ case err of
               Semver.TooLongVersion ->
-                concat ["You should use no more than three indices"
-                       , "in your version number"]
+                "You should use no more than three indices in your version number"
               Semver.NotZero nz ->
-                concat ["Expected zero at ", show pos, " got ", show nz]
+                concat
+                [ "Increasing version from " ++ show pv ++ " to " ++ show cv ++ " is incorrect!\n"
+                , "Only zeros can follow increased part of version number\n"
+                , "Expected zero at ", Semver.showIntAsIndex pos, " got ", show nz]
               Semver.NotSuccessor v1 v2 ->
-                concat ["Version at ", show pos, " changed from ", show v1
-                       , " to ", show v2, ", which is incorrect - you must "
-                       , "increase version number at most by one"]
+                concat
+                ["Version at ", show pos, " changed from ", show v1
+                , " to ", show v2, ", which is incorrect - you must "
+                , "increase version number at most by one"]
               Semver.SameVersions ->
-                unlines $
+                unlines
                 [ "This version has already been released!"
                 , "Increase patch number from latest version to release in current minor branch" ]
 
@@ -174,8 +178,42 @@ generateDocs modules =
            BS.length json `seq` return ()
            BS.appendFile Path.combinedJson json
 
-compareDocs :: N.Name -> V.Version -> ErrorT String IO ()
-compareDocs name version =
+checkVersionCompat :: V.Version -> Semver.IndexPos -> Semver.Compatibility -> ErrorT String IO ()
+checkVersionCompat version pos compat =
+  case version of
+    -- According to semantic versioning, versions 0.* are considered unstable and
+    -- every change can introduce breaking changes
+    V.V (0 : _) _ -> return ()
+
+    _ ->
+      case pos of
+
+        Semver.Patch ->
+          case compat of
+            Semver.Same -> return ()
+            _ -> throwError patchErr
+
+        Semver.Minor ->
+          case compat of
+            Semver.Same -> return ()
+            Semver.Compatible -> return ()
+            Semver.Incompatible -> throwError minorErr
+
+        Semver.Major -> return ()
+
+  where
+    patchErr =
+      unlines
+      [ "According to semantic versioning, patch versions should only"
+      , "fix bugs without introducing changes to API" ]
+
+    minorErr =
+      unlines
+      [ "According to semantic versioning, minor changed shouldn't"
+      , "introduce breaking changes to public API" ]
+
+compareDocs :: N.Name -> V.Version -> Semver.IndexPos -> ErrorT String IO ()
+compareDocs name version pos =
   let url = concat [R.domain, "/catalog/", N.toFilePath name, "/"
                    , V.toString version, "/docs.json"]
   in
@@ -188,4 +226,9 @@ compareDocs name version =
 
      case AT.parseEither Semver.buildDocsComparison (v1, v2) of
        Left err -> throwError err
-       Right result -> liftIO $ print result
+       Right result ->
+         let allEntries = Map.elems result
+             compat = Semver.compatibility allEntries
+         in
+         do liftIO $ mapM_ putStrLn $ Semver.renderDocsComparison result
+            checkVersionCompat version pos compat

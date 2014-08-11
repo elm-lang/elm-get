@@ -1,17 +1,21 @@
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Utils.SemverCheck where
 
-import Control.Monad (when, foldM, forM)
+import Control.Monad (when, foldM, liftM2)
 import Control.Monad.Error (ErrorT, noMsg, strMsg, Error, throwError, runErrorT)
 import Control.Monad.Trans (lift)
 import Data.Aeson hiding (Number)
 import Data.Aeson.Types (Parser)
 import Data.Char (toLower)
+import Data.Functor ((<$>))
 import Data.List (isPrefixOf)
 import Data.Map (Map)
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 import qualified Data.Vector as V
 import qualified Data.Map as Map
@@ -40,6 +44,12 @@ buildIndexPos x =
     2 -> Right Patch
     _ -> Left (x, TooLongVersion)
 
+showIntAsIndex :: Int -> String
+showIntAsIndex x =
+  case buildIndexPos x of
+    Left _ -> "position " ++ show (x + 1)
+    Right v -> showIndexPos v
+
 -- | Check two version numbers to see whether one of them follows another
 --   If that's the case, return an index in version number when increment
 --   takes place. If that's not the case, return an error with position
@@ -65,6 +75,12 @@ data Compatibility
   | Compatible
   | Same
   deriving (Eq, Ord, Show)
+
+class Change a where
+  compatibility :: a -> Compatibility
+
+instance Change a => Change [a] where
+  compatibility ls = maximum (Same : map compatibility ls)
 
 type Var = String
 
@@ -98,27 +114,81 @@ variableType str
   | isSpecial "number" str = Number
   | otherwise = Regular
 
-isCompatible :: VariableType -> VariableType -> Compatibility
-isCompatible ty1 ty2 =
-  case (ty1, ty2) of
-    (Regular, Regular) -> Same
-    (_, Regular) -> Compatible
-    (x, y) | x == y -> Same
-           | otherwise -> Incompatible
+instance Change (VariableType, VariableType) where
+  compatibility (ty1, ty2) =
+    case (ty1, ty2) of
+      (Regular, Regular) -> Same
+      (_, Regular) -> Compatible
+      (x, y) | x == y -> Same
+             | otherwise -> Incompatible
 
 type VarRenaming = Map Var Var
+
+instance Change VarRenaming where
+  compatibility = Map.foldrWithKey f Same
+    where f v1 v2 k = compatibility (variableType v1, variableType v2) `max` k
+
 type RenameContext = ErrorT NonCorrespondence Parser
 
 data BindingState
   = Added
   | Existing Compatibility
   | Removed
-  deriving (Eq, Show)
+  deriving (Eq, Show, Ord)
+
+instance Change BindingState where
+  compatibility st = case st of
+    Removed -> Incompatible
+    Existing comp -> comp
+    Added -> Compatible
 
 data ComparisonEntry = ComparisonEntry
     { name :: String
+    , raw :: String
+    , raw2 :: Maybe String
     , state :: BindingState
     } deriving (Show)
+
+instance Change ComparisonEntry where
+  compatibility = compatibility . state
+
+showEntry :: ComparisonEntry -> [String]
+showEntry (ComparisonEntry _ r mr2 s) =
+  case (s, mr2) of
+    (Existing _, Just r2) ->
+      [ "  - " ++ r2
+      , "  + " ++ r
+      , ""]
+    _ -> ["    " ++ r]
+
+addPrefix :: Int -> String -> [String] -> [String]
+addPrefix len pref ls =
+  case ls of
+    [] -> []
+    _ -> ((take len (repeat ' ') ++ pref) : ls)
+
+renderEntries :: [ComparisonEntry] -> [String]
+renderEntries entries =
+  concat [ addPrefix 2 "Added:" $ getDocs Added
+         , addPrefix 2 "Changed:" $
+           getManyDocs [Existing Compatible, Existing Incompatible]
+         , addPrefix 2 "Removed:" $ getDocs Removed ]
+  where
+    sortedEntries = foldr insertItem Map.empty entries
+
+    getDocs key = fromMaybe [] $ Map.lookup key sortedEntries
+    getManyDocs keys = concatMap getDocs keys
+
+    insertItem entry m =
+      case state entry of
+        Existing Same -> m
+        st -> Map.insertWith (++) st (showEntry entry) m
+
+renderDocsComparison :: Map String [ComparisonEntry] -> [String]
+renderDocsComparison = Map.foldrWithKey attach []
+  where
+    attach name entries ls =
+      addPrefix 0 ("Module " ++ name) (renderEntries entries) ++ ls
 
 generalExtract :: FromJSON a => Object -> Object -> Text -> Parser (a, a)
 generalExtract o1 o2 tag =
@@ -166,54 +236,58 @@ buildModuleComparison (v1, v2) =
       let extract :: FromJSON a => Text -> Parser (a, a)
           extract = generalExtract o1 o2
 
-          extractEntry :: Value -> Parser (Maybe (String, Value))
+          extractEntry :: Value -> Parser (Maybe (String, String, Value))
           extractEntry val =
             do o <- expectObject "binding information" val
                exposed <- o .:? "exposed"
                name <- o .: "name"
+               raw <- o .: "raw"
                typ <- o .: "type"
                return $
                  case exposed of
-                   Just True -> Just (name, typ)
-                   _ -> Nothing
+                   Just False -> Nothing
+                   _ -> Just (name, raw, typ)
 
-          addValue :: Map String Value -> Value -> Parser (Map String Value)
-          addValue env val =
-            do entry <- extractEntry val
-               case entry of
-                 Nothing -> return env
-                 Just (name, typ) -> return $ Map.insert name typ env
+          buildMap :: Ord a => [(a, b, c)] -> Map a (b, c)
+          buildMap = Map.fromList . map (\(x, y, z) -> (x, (y, z)))
 
-          buildEnv :: [Value] -> Parser (Map String Value)
-          buildEnv = foldM addValue Map.empty
+          buildEnv :: [Value] -> Parser (Map String (String, Value))
+          buildEnv vs = buildMap . catMaybes <$> mapM extractEntry vs
 
-          buildEntry :: Map String Value -> (String, Value) -> Parser BindingState
-          buildEntry env (name, typ) =
+          mapMapM :: Monad m => Map k v -> (k -> v -> m a) -> m [a]
+          mapMapM m fn = Map.foldrWithKey g (return []) m
+            where g k v act = liftM2 (:) (fn k v) act
+
+          buildEntry :: Map String (String, Value) -> String -> Value -> Parser (BindingState, Maybe String)
+          buildEntry env name typ =
             case Map.lookup name env of
-              Nothing -> return Added
-              Just typ2 ->
+              Nothing -> return (Added, Nothing)
+              Just (raw, typ2) ->
                 do compat <- runErrorT $ buildRenaming Map.empty (typ, typ2)
-                   return $
+                   return $ (,Just raw) $
                      case compat of
                        Left _ -> Existing Incompatible
-                       Right _ -> Existing Compatible -- TODO: change me
+                       Right env -> Existing (compatibility env)
+
       in
       do (vs1, vs2) <- extract "values"
+         env1 <- buildEnv vs1
          env2 <- buildEnv vs2
-         entries <- forM vs1 $ \v ->
-           do entry <- extractEntry v
-              case entry of
-                Nothing -> return Nothing
-                Just tp@(name, _) ->
-                  do state <- buildEntry env2 tp
-                     return $ Just $ ComparisonEntry name state
-         return $ catMaybes entries
+         entries <- mapMapM env1 $ \name (raw, value) ->
+           do (state, raw2) <- buildEntry env2 name value
+              return $ ComparisonEntry name raw raw2 state
+         let f name (raw, _) ls =
+               case Map.lookup name env1 of
+                 Nothing -> ComparisonEntry name raw Nothing Removed : ls
+                 _ -> ls
+         let entriesRemoved = Map.foldrWithKey f [] env2
+         return $ entries ++ entriesRemoved
     _ -> fail "Tried to parse module information from non-object"
 
 -- | Function to build a renaming of variables application of which transforms
 --   first type to another. Type signature represented as JSON values,
 --   as serialized by Elm.Internal.Documentation in "Elm" library
---   First value is of newer module, second is of older. TODO: CHECK
+--   First value is of newer module, second is of older.
 buildRenaming :: VarRenaming -> (Value, Value) -> RenameContext VarRenaming
 buildRenaming env (v1, v2) =
   case (v1, v2) of
@@ -224,7 +298,7 @@ buildRenaming env (v1, v2) =
           assert cond = when (not cond) $ throwError DifferentTypes
       in
       do (tag1 :: String, tag2) <- extract "tag"
-         when (tag1 /= tag2) $ throwError DifferentTypes
+         assert (tag1 == tag2)
          case tag1 of
            "var" ->
              do (var1, var2) <- extract "name"

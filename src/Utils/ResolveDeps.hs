@@ -20,6 +20,7 @@ import qualified Elm.Internal.Name as N
 import qualified Elm.Internal.Assets as A
 import qualified Elm.Internal.Version as V
 import qualified Get.Registry as Reg
+import qualified Utils.Helpers as Helpers
 import qualified Utils.Http as Http
 import qualified Utils.Cache as Cache
 
@@ -68,16 +69,13 @@ instance ToJSON LibraryInfo
 
 type LibraryDB = Map String LibraryInfo
 
-buildMap :: Ord k => (v -> k) -> [v] -> Map k v
-buildMap key values = foldl' (\map v -> M.insert (key v) v map) M.empty values
-
 -- | Read information about libraries, probably from local cache
 readLibraries :: ErrorT String IO LibraryDB
 readLibraries =
   let dir = A.packagesDirectory </> "_elm_get_cache"
       fileName = "libraries.json"
       downloadAction = Http.decodeFromUrl $ Reg.domain ++ "/libraries.json"
-  in fmap (buildMap name) $ cacheWrapper downloadAction dir fileName
+  in fmap (Helpers.buildMap name) $ cacheWrapper downloadAction dir fileName
 
 firstSuccess :: MonadError e m => e -> [m a] -> m a
 firstSuccess err = foldl' catchIgnore (throwError err)
