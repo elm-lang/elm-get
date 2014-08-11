@@ -6,20 +6,21 @@
 
 module Utils.SemverCheck where
 
-import Control.Monad (when, foldM, liftM2)
-import Control.Monad.Error (ErrorT, noMsg, strMsg, Error, throwError, runErrorT)
-import Control.Monad.Trans (lift)
+import Control.Monad.Error
 import Data.Aeson hiding (Number)
 import Data.Aeson.Types (Parser)
-import Data.Char (toLower)
 import Data.Functor ((<$>))
-import Data.List (isPrefixOf)
-import Data.Map (Map)
-import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
-import qualified Data.Vector as V
+import qualified Data.Char as Char
+import qualified Data.List as List
 import qualified Data.Map as Map
+import qualified Data.Maybe as Maybe
+import qualified Data.Vector as V
 
+-- DATATYPE DEFINITIONS
+
+{-| A type for all possible reasons why one version isn't an
+immediate successor to another version -}
 data VersionError
   = NotSuccessor Int Int
   | NotZero Int
@@ -27,14 +28,57 @@ data VersionError
   | TooLongVersion
   deriving (Show)
 
+{-| Datatype of all possible parts of version number
+according to semantic versioning -}
 data IndexPos
   = Major
   | Minor
   | Patch
   deriving (Show)
 
+-- | A compatibility relation between two "things", e.g. function types
+data Compatibility
+  = Incompatible
+  | Compatible
+  | Same
+  deriving (Eq, Ord, Show)
+
+-- | Datatype of all possible reasons whil
+data NonCorrespondence
+  = DifferentRenaming Var Var Var
+  | DifferentTypes
+  | DifferentRecordExtensions
+  | ParsingError
+  | StringError String
+
+{-| There are special type variables in Elm, like "comparable''", which could
+be instantiated only to a particular concrete types. This datatype enumerates
+all type variable sorts -}
+data VariableType
+  = Comparable
+  | Appendable
+  | Number
+  | Regular
+  deriving (Eq, Show)
+
+{-| An information about how particular definition in module changed
+with respect to the previous version of the same module -}
+data BindingState
+  = Added
+  | Existing Compatibility
+  | Removed
+  deriving (Eq, Show, Ord)
+
+{-| All information about particular bniding in a module -}
+data ComparisonEntry = ComparisonEntry
+    { name :: String
+    , raw :: String
+    , raw2 :: Maybe String
+    , state :: BindingState
+    } deriving (Show)
+
 showIndexPos :: IndexPos -> String
-showIndexPos x = map toLower (show x) ++ " position"
+showIndexPos x = map Char.toLower (show x) ++ " position"
 
 buildIndexPos :: Int -> Either (Int, VersionError) IndexPos
 buildIndexPos x =
@@ -50,10 +94,10 @@ showIntAsIndex x =
     Left _ -> "position " ++ show (x + 1)
     Right v -> showIndexPos v
 
--- | Check two version numbers to see whether one of them follows another
---   If that's the case, return an index in version number when increment
---   takes place. If that's not the case, return an error with position
---   where that error happened
+{-| Check two version numbers to see whether one of them follows another.
+If that's the case, return an index in version number when increment
+takes place. If that's not the case, return an error with position
+where that error happened -}
 immediateNext :: [Int] -> [Int] -> Either (Int, VersionError) IndexPos
 immediateNext prev next = check 0 $ zip (prev ++ repeat 0) next
   where check i ls =
@@ -70,49 +114,12 @@ immediateNext prev next = check 0 $ zip (prev ++ repeat 0) next
             (_, 0) : rest -> checkZeros result (pos + 1) rest
             (_, y) : _ -> Left (pos, NotZero y)
 
-data Compatibility
-  = Incompatible
-  | Compatible
-  | Same
-  deriving (Eq, Ord, Show)
-
+-- | A class of things which could be compared for compatibility
 class Change a where
   compatibility :: a -> Compatibility
 
 instance Change a => Change [a] where
-  compatibility ls = maximum (Same : map compatibility ls)
-
-type Var = String
-
-data NonCorrespondence
-  = DifferentRenaming Var Var Var
-  | DifferentTypes
-  | DifferentRecordExtensions
-  | ParsingError
-  | StringError String
-
-instance Error NonCorrespondence where
-  noMsg = StringError "Unknown error"
-  strMsg = StringError
-
-data VariableType
-  = Comparable
-  | Appendable
-  | Number
-  | Regular
-  deriving (Eq, Show)
-
-isSpecial :: String -> String -> Bool
-isSpecial prefix str =
-  let n = length prefix
-  in (prefix `isPrefixOf` str) && (all (== '\'') $ drop n str)
-
-variableType :: String -> VariableType
-variableType str
-  | isSpecial "comparable" str = Comparable
-  | isSpecial "appendable" str = Appendable
-  | isSpecial "number" str = Number
-  | otherwise = Regular
+  compatibility ls = minimum (Same : map compatibility ls)
 
 instance Change (VariableType, VariableType) where
   compatibility (ty1, ty2) =
@@ -122,19 +129,9 @@ instance Change (VariableType, VariableType) where
       (x, y) | x == y -> Same
              | otherwise -> Incompatible
 
-type VarRenaming = Map Var Var
-
 instance Change VarRenaming where
   compatibility = Map.foldrWithKey f Same
-    where f v1 v2 k = compatibility (variableType v1, variableType v2) `max` k
-
-type RenameContext = ErrorT NonCorrespondence Parser
-
-data BindingState
-  = Added
-  | Existing Compatibility
-  | Removed
-  deriving (Eq, Show, Ord)
+    where f v1 v2 k = compatibility (variableType v1, variableType v2) `min` k
 
 instance Change BindingState where
   compatibility st = case st of
@@ -142,16 +139,36 @@ instance Change BindingState where
     Existing comp -> comp
     Added -> Compatible
 
-data ComparisonEntry = ComparisonEntry
-    { name :: String
-    , raw :: String
-    , raw2 :: Maybe String
-    , state :: BindingState
-    } deriving (Show)
-
 instance Change ComparisonEntry where
   compatibility = compatibility . state
 
+type Var = String
+
+-- | Error instance for NonCorrespondence specially for using ErrorT transformer
+instance Error NonCorrespondence where
+  noMsg = StringError "Unknown error"
+  strMsg = StringError
+
+{-| Check whether second argument consists of first argument and
+zero or more ticks -}
+isSpecial :: String -> String -> Bool
+isSpecial prefix str =
+  let n = length prefix
+  in (List.isPrefixOf prefix str) && (all (== '\'') $ drop n str)
+
+-- | Get a type variable sort by its name
+variableType :: String -> VariableType
+variableType str
+  | isSpecial "comparable" str = Comparable
+  | isSpecial "appendable" str = Appendable
+  | isSpecial "number" str = Number
+  | otherwise = Regular
+
+type VarRenaming = Map.Map Var Var
+
+type RenameContext = ErrorT NonCorrespondence Parser
+
+-- | Pretty-printing function for module comparison entries
 showEntry :: ComparisonEntry -> [String]
 showEntry (ComparisonEntry _ r mr2 s) =
   case (s, mr2) of
@@ -161,12 +178,15 @@ showEntry (ComparisonEntry _ r mr2 s) =
       , ""]
     _ -> ["    " ++ r]
 
+{-| Add an (indented) top line for non-empty list of strings.
+Leave empty list of strings as it is -}
 addPrefix :: Int -> String -> [String] -> [String]
 addPrefix len pref ls =
   case ls of
     [] -> []
     _ -> ((take len (repeat ' ') ++ pref) : ls)
 
+-- | Pretty-print module comparison given as a list of entries
 renderEntries :: [ComparisonEntry] -> [String]
 renderEntries entries =
   concat [ addPrefix 2 "Added:" $ getDocs Added
@@ -176,7 +196,7 @@ renderEntries entries =
   where
     sortedEntries = foldr insertItem Map.empty entries
 
-    getDocs key = fromMaybe [] $ Map.lookup key sortedEntries
+    getDocs key = Maybe.fromMaybe [] $ Map.lookup key sortedEntries
     getManyDocs keys = concatMap getDocs keys
 
     insertItem entry m =
@@ -184,7 +204,8 @@ renderEntries entries =
         Existing Same -> m
         st -> Map.insertWith (++) st (showEntry entry) m
 
-renderDocsComparison :: Map String [ComparisonEntry] -> [String]
+-- | Pretty-print comparison of whole docs.json
+renderDocsComparison :: Map.Map String [ComparisonEntry] -> [String]
 renderDocsComparison = Map.foldrWithKey attach []
   where
     attach name entries ls =
@@ -203,7 +224,7 @@ expectObject name val =
     _ -> fail $ "Expected JSON object while parsing " ++ name
 
 -- | Build a map of differences between two "docs.json"
-buildDocsComparison :: (Value, Value) -> Parser (Map String [ComparisonEntry])
+buildDocsComparison :: (Value, Value) -> Parser (Map.Map String [ComparisonEntry])
 buildDocsComparison (v1, v2) =
   let moduleName :: Value -> Parser String
       moduleName v =
@@ -248,17 +269,17 @@ buildModuleComparison (v1, v2) =
                    Just False -> Nothing
                    _ -> Just (name, raw, typ)
 
-          buildMap :: Ord a => [(a, b, c)] -> Map a (b, c)
+          buildMap :: Ord a => [(a, b, c)] -> Map.Map a (b, c)
           buildMap = Map.fromList . map (\(x, y, z) -> (x, (y, z)))
 
-          buildEnv :: [Value] -> Parser (Map String (String, Value))
-          buildEnv vs = buildMap . catMaybes <$> mapM extractEntry vs
+          buildEnv :: [Value] -> Parser (Map.Map String (String, Value))
+          buildEnv vs = buildMap . Maybe.catMaybes <$> mapM extractEntry vs
 
-          mapMapM :: Monad m => Map k v -> (k -> v -> m a) -> m [a]
+          mapMapM :: Monad m => Map.Map k v -> (k -> v -> m a) -> m [a]
           mapMapM m fn = Map.foldrWithKey g (return []) m
             where g k v act = liftM2 (:) (fn k v) act
 
-          buildEntry :: Map String (String, Value) -> String -> Value -> Parser (BindingState, Maybe String)
+          buildEntry :: Map.Map String (String, Value) -> String -> Value -> Parser (BindingState, Maybe String)
           buildEntry env name typ =
             case Map.lookup name env of
               Nothing -> return (Added, Nothing)
@@ -284,10 +305,10 @@ buildModuleComparison (v1, v2) =
          return $ entries ++ entriesRemoved
     _ -> fail "Tried to parse module information from non-object"
 
--- | Function to build a renaming of variables application of which transforms
---   first type to another. Type signature represented as JSON values,
---   as serialized by Elm.Internal.Documentation in "Elm" library
---   First value is of newer module, second is of older.
+{-| Function to build a renaming of variables application of which
+transforms first type to another. Type signature represented as JSON values,
+as serialized by Elm.Internal.Documentation in "Elm" library.
+First value is of newer module, second is of older. -}
 buildRenaming :: VarRenaming -> (Value, Value) -> RenameContext VarRenaming
 buildRenaming env (v1, v2) =
   case (v1, v2) of

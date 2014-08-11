@@ -116,7 +116,7 @@ verifyVersion name version =
                 pos <- checkSemanticVersioning prevVersion version
                 return $ Just (prevVersion, pos)
 
-       --checkTag version
+       checkTag version
        return prevVersion
 
     where
@@ -125,28 +125,36 @@ verifyVersion name version =
           Right pos -> return pos
           Left (pos, err) ->
             throwError $ case err of
-              Semver.TooLongVersion ->
-                "You should use no more than three indices in your version number"
-              Semver.NotZero nz ->
-                concat
-                [ "Increasing version from " ++ show pv ++ " to " ++ show cv ++ " is incorrect!\n"
-                , "Only zeros can follow increased part of version number\n"
-                , "Expected zero at ", Semver.showIntAsIndex pos, " got ", show nz]
-              Semver.NotSuccessor v1 v2 ->
-                concat
-                ["Version at ", show pos, " changed from ", show v1
-                , " to ", show v2, ", which is incorrect - you must "
-                , "increase version number at most by one"]
-              Semver.SameVersions ->
-                unlines
-                [ "This version has already been released!"
-                , "Increase patch number from latest version to release in current minor branch" ]
+              Semver.TooLongVersion -> tooLongMessage
+              Semver.NotZero nz -> foundNonZero pv cv pos nz
+              Semver.NotSuccessor v1 v2 -> notSuccessor pos v1 v2
+              Semver.SameVersions -> alreadyReleased
 
       checkTag version =
         do tags <- lines <$> Cmd.git [ "tag", "--list" ]
            let v = show version
            when (show version `notElem` tags) $
              throwError (unlines (tagMessage v))
+
+      tooLongMessage =
+        "You should use no more than three indices in your version number"
+
+      foundNonZero pv cv pos nz =
+        concat
+        [ "Increasing version from ", show pv, " to ", show cv, " is incorrect!\n"
+        , "Only zeros can follow increased part of version number\n"
+        , "Expected zero at ", Semver.showIntAsIndex pos, " got ", show nz]
+
+      notSuccessor pos v1 v2 =
+        concat
+        [ "Version at ", show pos, " changed from ", show v1
+        , " to ", show v2, ", which is incorrect - you must "
+        , "increase version number at most by one"]
+
+      alreadyReleased =
+        unlines
+        [ "This version has already been released!"
+        , "Increase patch number from latest version to release in current minor branch" ]
 
       tagMessage v =
           [ "Libraries must be tagged in git, but tag " ++ v ++ " was not found."
@@ -214,7 +222,7 @@ checkVersionCompat version pos compat =
 
 compareDocs :: N.Name -> V.Version -> Semver.IndexPos -> ErrorT String IO ()
 compareDocs name version pos =
-  let url = concat [R.domain, "/catalog/", N.toFilePath name, "/"
+  let url = concat [ R.domain, "/catalog/", N.toFilePath name, "/"
                    , V.toString version, "/docs.json"]
   in
   do mv1 <- liftIO $ decode <$> BS.readFile Path.combinedJson
