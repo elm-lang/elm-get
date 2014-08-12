@@ -84,16 +84,16 @@ offerInstallPlan ls = case ls of
 
 install :: GL.Library -> ErrorT String IO ()
 install (GL.Library name v) =
-  do version <- case v of
+  do deps <- D.depsAt A.dependencyFile
+     version <- case v of
        Nothing ->
          do liftIO $ putStrLn "Version isn't specified, going to request latest available"
-            libDb <- readLibraries
+            libDb <- readLibraries deps
             case Map.lookup (show name) libDb of
               Nothing ->
                 throwError $ "Library " ++ show name ++ " wasn't found!"
               Just lib -> return $ maximum $ versions lib
        Just vsn -> return vsn
-     deps <- D.depsAt A.dependencyFile
      case lookup name (D.dependencies deps) of
        Just{} -> throwError $ "You already have " ++ show name ++ " in your dependencies!"
        Nothing -> updateVersion deps name version

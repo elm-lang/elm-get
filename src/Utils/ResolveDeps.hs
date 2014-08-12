@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DeriveGeneric #-}
 module Utils.ResolveDeps where
@@ -5,7 +6,8 @@ module Utils.ResolveDeps where
 import Control.Monad.Error
 import Control.Monad.State
 import Control.Monad.Reader
-import Data.Aeson (decode, FromJSON, ToJSON, encode)
+import Data.Aeson
+import Data.Functor ((<$>))
 import Data.List (foldl')
 import Data.Map (Map)
 import GHC.Generics (Generic)
@@ -25,18 +27,12 @@ import qualified Utils.Http as Http
 import qualified Utils.Cache as Cache
 
 -- | Try to read a JSON-encoded value from a file
-decodeFromFile :: (MonadIO m, FromJSON a) => FilePath -> m (Maybe a)
+decodeFromFile :: (Functor m, MonadIO m, FromJSON a) => FilePath -> m (Maybe a)
 decodeFromFile fullPath =
   do fileExists <- liftIO $ Dir.doesFileExist fullPath
      case fileExists of
        False -> return Nothing
-       True ->
-         do fileContents <- liftIO $ BS.readFile fullPath
-            case decode fileContents of
-              Nothing ->
-                do liftIO $ putStrLn $ "Cache contents at " ++ fullPath ++ " are malformed"
-                   return Nothing
-              result@Just{} -> return result
+       True -> decode <$> (liftIO $ BS.readFile fullPath)
 
 -- | Try to write a value to a file in particular directory, encoding it to JSON
 encodeToFile :: ToJSON a => a -> FilePath -> FilePath -> IO ()
@@ -44,8 +40,8 @@ encodeToFile value dir fileName =
   do Dir.createDirectoryIfMissing True dir
      BS.writeFile (dir </> fileName) (encode value)
 
--- | A wrapper around Utils.Cache.cacheComputation to simplify implementing
---   caching for downloaded packages metadata
+{-| A wrapper around Utils.Cache.cacheComputation to simplify implementing
+caching for downloaded packages metadata -}
 cacheWrapper :: (FromJSON a, ToJSON a, MonadIO m) => m a -> FilePath -> FilePath -> m a
 cacheWrapper uncached dir fileName =
   let readSomething =
@@ -66,20 +62,54 @@ decodeFromUrl url =
        Just v -> return v
        Nothing -> throwError $ "Can't read value from " ++ url
 
+data LibrarySource
+  = CentralRepo
+  | LocalDir FilePath
+  deriving (Show, Generic)
+
 -- | Library description as used in library.elm-lang.org/libraries.json
 data LibraryInfo = LibraryInfo
     { name :: String
     , summary :: String
     , versions :: [V.Version]
+    , source :: LibrarySource
     } deriving (Show, Generic)
 
-instance FromJSON LibraryInfo
-instance ToJSON LibraryInfo
+replaceSource :: LibrarySource -> LibraryInfo -> LibraryInfo
+replaceSource src info = info { source = src }
+
+instance FromJSON LibraryInfo where
+  parseJSON (Object o) =
+    do name <- o .: "name"
+       summary <- o .: "summary"
+       versions <- o .: "versions"
+       return $ LibraryInfo name summary versions CentralRepo
+  parseJSON _ = fail "Trying to parse library info from non-object"
+
+instance ToJSON LibraryInfo where
+  toJSON info =
+    object [ "name" .= name info
+           , "summary" .= summary info
+           , "versions" .= versions info ]
 
 type LibraryDB = Map String LibraryInfo
 
 buildMap :: Ord k => (v -> k) -> [v] -> Map k v
 buildMap key values = foldl' (\map v -> M.insert (key v) v map) M.empty values
+
+buildLocalDb :: [LibraryInfo] -> ErrorT String IO LibraryDB
+buildLocalDb = foldM insertSafe M.empty
+  where
+    insertSafe m info =
+      case M.lookup key m of
+        Nothing -> return $ M.insert key info m
+        Just _ -> throwError $ duplicateErr key
+      where key = name info
+
+    duplicateErr name =
+      unlines
+      [ "Library " ++ show name ++ " is stored more than once in local repo!"
+      , "Resolve ambiguity and try again" ]
 
 -- | For every minor version remove all patch versions but last
 onlyLastPatches :: LibraryInfo -> LibraryInfo
@@ -91,8 +121,39 @@ onlyLastPatches info = info { versions = process $ versions info }
       in map maximum $ M.elems allByMinor
 
 -- | Read information about libraries, probably from local cache
-readLibraries :: ErrorT String IO LibraryDB
-readLibraries =
+readLibraries :: D.Deps -> ErrorT String IO LibraryDB
+readLibraries deps =
+  do localLibs <- concat <$> mapM readLibrariesFromDir (D.sourceDirs deps)
+     globalLibs <- readLibrariesFromCentral
+     let localLibsDb = buildMap name localLibs
+     -- Data.Map.union is left-biased, so local libs with same name will
+     -- be preferred to list from global repository
+     return $ M.union localLibsDb globalLibs
+
+getLibraryInfo :: D.Deps -> LibrarySource -> LibraryInfo
+getLibraryInfo deps src =
+  LibraryInfo { name = N.toString (D.name deps)
+              , summary = D.summary deps
+              , versions = [D.version deps]
+              , source = src }
+
+readLibrariesFromDir :: FilePath -> ErrorT String IO [LibraryInfo]
+readLibrariesFromDir dir =
+  do maybeDeps <- decodeFromFile (dir </> A.dependencyFile)
+     case maybeDeps of
+       Nothing -> throwError (failedImport dir)
+       Just deps ->
+         do recList <- mapM readLibrariesFromDir (D.sourceDirs deps)
+            return $ getLibraryInfo deps (LocalDir dir) : concat recList
+
+  where
+    failedImport dir =
+      unlines
+      [ "Failed to import a package from source directory " ++ dir ++ "!"
+      , "Maybe " ++ A.dependencyFile ++ " is missing or malformed?" ]
+
+readLibrariesFromCentral :: ErrorT String IO LibraryDB
+readLibrariesFromCentral =
   let dir = A.packagesDirectory </> "_elm_get_cache"
       fileName = "libraries.json"
       downloadAction = decodeFromUrl $ Reg.domain ++ "/libraries.json"
@@ -185,7 +246,7 @@ solveConstraintsByDeps deps =
 
 solveConstraints :: D.Deps -> ErrorT String IO [(N.Name, V.Version)]
 solveConstraints deps =
-  do libraryDb <- readLibraries
+  do libraryDb <- readLibraries deps
      let unreader = runReaderT (solveConstraintsByDeps deps) libraryDb
          initialState = SolverState M.empty M.empty
      (solved, state) <- runStateT unreader initialState

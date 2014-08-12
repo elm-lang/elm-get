@@ -33,6 +33,7 @@ publish =
      verifyElmVersion (D.elmVersion deps)
      verifyMetadata deps
      verifyExposedModulesExist exposedModules
+     verifyNoSourceDirs (D.sourceDirs deps)
      verifyVersion name version
      withCleanup $
        do generateDocs exposedModules
@@ -110,6 +111,12 @@ verifyMetadata deps =
           if what deps == what defaultDeps
             then Just msg
             else Nothing
+
+verifyNoSourceDirs :: [FilePath] -> ErrorT String IO ()
+verifyNoSourceDirs dirs =
+  case dirs of
+    [] -> return ()
+    _ -> throwError "Published library must not depend on any of local packages!"
 
 verifyVersion :: N.Name -> V.Version -> ErrorT String IO ()
 verifyVersion name version =
