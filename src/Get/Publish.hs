@@ -3,39 +3,44 @@ module Get.Publish where
 
 import Control.Applicative ((<$>))
 import Control.Monad.Error
-import qualified Data.ByteString as BS
+import Data.Aeson (decode)
+import qualified Data.Aeson.Types as AT
+import qualified Data.ByteString.Lazy as BS
 import qualified Data.List as List
+import qualified Data.Map as Map
 import qualified Data.Maybe as Maybe
 import System.Directory
 import System.Exit
 import System.IO
 
 import qualified Elm.Internal.Dependencies as D
-import qualified Elm.Internal.SolvedDependencies as SD
 import qualified Elm.Internal.Name as N
 import qualified Elm.Internal.Assets as A
 import qualified Elm.Internal.Version as V
 
 import Get.Dependencies (defaultDeps)
 import qualified Get.Registry as R
+import qualified Utils.Http as Http
 import qualified Utils.Commands as Cmd
 import qualified Utils.Paths as Path
+import qualified Utils.SemverCheck as Semver
 
 publish :: ErrorT String IO ()
 publish =
   do deps <- getDeps
-     versions <- getVersions
      let name = D.name deps
          version = D.version deps
          exposedModules = D.exposed deps
      Cmd.out $ unwords [ "Verifying", show name, show version, "..." ]
-     verifyNoDependencies versions
      verifyElmVersion (D.elmVersion deps)
      verifyMetadata deps
      verifyExposedModulesExist exposedModules
-     verifyVersion name version
+     prev <- verifyVersion name version
      withCleanup $
        do generateDocs exposedModules
+          case prev of
+            Just (prevVersion, pos) -> compareDocs name prevVersion pos
+            Nothing -> return ()
           R.register name version Path.combinedJson
      Cmd.out "Success!"
 
@@ -51,9 +56,6 @@ exitAtFail action =
 getDeps :: ErrorT String IO D.Deps
 getDeps = exitAtFail $ D.depsAt A.dependencyFile
 
-getVersions :: ErrorT String IO [(N.Name, V.Version)]
-getVersions = exitAtFail $ SD.read A.solvedDependencies
-
 withCleanup :: ErrorT String IO () -> ErrorT String IO ()
 withCleanup action =
     do existed <- liftIO $ doesDirectoryExist "docs"
@@ -62,14 +64,6 @@ withCleanup action =
        case either of
          Left err -> throwError err
          Right () -> return ()
-
-verifyNoDependencies :: [(N.Name,V.Version)] -> ErrorT String IO ()
-verifyNoDependencies [] = return ()
-verifyNoDependencies _ =
-    throwError
-        "elm-get is not able to publish projects with dependencies yet. This is a\n\
-        \very high proirity, we are working on it! For now, announce your library on the\n\
-        \mailing list: <https://groups.google.com/forum/#!forum/elm-discuss>"
 
 verifyElmVersion :: V.Version -> ErrorT String IO ()
 verifyElmVersion elmVersion@(V.V ns _)
@@ -111,28 +105,56 @@ verifyMetadata deps =
             then Just msg
             else Nothing
 
-verifyVersion :: N.Name -> V.Version -> ErrorT String IO ()
+verifyVersion :: N.Name -> V.Version -> ErrorT String IO (Maybe (V.Version, Semver.IndexPos))
 verifyVersion name version =
     do response <- R.versions name
-       case response of
-         Nothing -> return ()
-         Just versions ->
-             do let maxVersion = maximum (version:versions)
-                when (version < maxVersion) $ throwError $ unlines
-                     [ "a later version has already been released."
-                     , "Use a version number higher than " ++ show maxVersion ]
-                checkSemanticVersioning maxVersion
+       prevVersion <-
+         case response of
+           Nothing -> return Nothing
+           Just versions ->
+             do let prevVersion = maximum $ filter (<= version) versions
+                pos <- checkSemanticVersioning prevVersion version
+                return $ Just (prevVersion, pos)
 
        checkTag version
+       return prevVersion
 
     where
-      checkSemanticVersioning _ = return ()
+      checkSemanticVersioning pv@(V.V prev _) cv@(V.V curr _) =
+        case Semver.immediateNext prev curr of
+          Right pos -> return pos
+          Left (pos, err) ->
+            throwError $ case err of
+              Semver.TooLongVersion -> tooLongMessage
+              Semver.NotZero nz -> foundNonZero pv cv pos nz
+              Semver.NotSuccessor v1 v2 -> notSuccessor pos v1 v2
+              Semver.SameVersions -> alreadyReleased
 
       checkTag version =
         do tags <- lines <$> Cmd.git [ "tag", "--list" ]
            let v = show version
            when (show version `notElem` tags) $
              throwError (unlines (tagMessage v))
+
+      tooLongMessage =
+        "You should use no more than three indices in your version number"
+
+      foundNonZero pv cv pos nz =
+        concat
+        [ "Increasing version from ", show pv, " to ", show cv, " is incorrect!\n"
+        , "Only zeros can follow increased part of version number\n"
+        , "Expected zero at ", Semver.showIntAsIndex pos, " got ", show nz]
+
+      notSuccessor pos v1 v2 =
+        concat
+        [ "Version at ", show pos, " changed from ", show v1
+        , " to ", show v2, ", which is incorrect - you must "
+        , "increase version number at most by one"]
+
+      alreadyReleased =
+        unlines
+        [ "This version has already been released!"
+        , "Increase patch number from latest version to release in current minor branch" ]
 
       tagMessage v =
           [ "Libraries must be tagged in git, but tag " ++ v ++ " was not found."
@@ -146,7 +168,7 @@ verifyVersion name version =
 
 generateDocs :: [String] -> ErrorT String IO ()
 generateDocs modules =
-    do forM elms $ \path -> Cmd.run "elm-doc" [path]
+    do Cmd.run "elm" ("--make" : "--generate-docs" : elms)
        liftIO $
          do let path = Path.combinedJson
             BS.writeFile path "[\n"
@@ -163,3 +185,58 @@ generateDocs modules =
         do json <- BS.readFile path
            BS.length json `seq` return ()
            BS.appendFile Path.combinedJson json
+
+checkVersionCompat :: V.Version -> Semver.IndexPos -> Semver.Compatibility -> ErrorT String IO ()
+checkVersionCompat version pos compat =
+  case version of
+    -- According to semantic versioning, versions 0.* are considered unstable and
+    -- every change can introduce breaking changes
+    V.V (0 : _) _ -> return ()
+
+    _ ->
+      case pos of
+
+        Semver.Patch ->
+          case compat of
+            Semver.Same -> return ()
+            _ -> throwError patchErr
+
+        Semver.Minor ->
+          case compat of
+            Semver.Same -> return ()
+            Semver.Compatible -> return ()
+            Semver.Incompatible -> throwError minorErr
+
+        Semver.Major -> return ()
+
+  where
+    patchErr =
+      unlines
+      [ "According to semantic versioning, patch versions should only"
+      , "fix bugs without introducing changes to API" ]
+
+    minorErr =
+      unlines
+      [ "According to semantic versioning, minor changed shouldn't"
+      , "introduce breaking changes to public API" ]
+
+compareDocs :: N.Name -> V.Version -> Semver.IndexPos -> ErrorT String IO ()
+compareDocs name version pos =
+  let url = concat [ R.domain, "/catalog/", N.toFilePath name, "/"
+                   , V.toString version, "/docs.json"]
+  in
+  do mv1 <- liftIO $ decode <$> BS.readFile Path.combinedJson
+     v1 <-
+       case mv1 of
+         Just result -> return result
+         Nothing -> throwError "Parse error while reading local docs.json"
+     v2 <- Http.decodeFromUrl url
+
+     case AT.parseEither Semver.buildDocsComparison (v1, v2) of
+       Left err -> throwError err
+       Right result ->
+         let allEntries = Map.elems result
+             compat = Semver.compatibility allEntries
+         in
+         do liftIO $ mapM_ putStrLn $ Semver.renderDocsComparison result
+            checkVersionCompat version pos compat
