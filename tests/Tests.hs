@@ -3,12 +3,12 @@ module Main where
 import Control.Monad.Error
 import Control.Monad.Reader
 import Control.Monad.State
-import Utils.ResolveDeps
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Elm.Internal.Constraint as C
 import qualified Elm.Internal.Version as V
 import qualified Elm.Internal.Name as N
+import qualified Utils.ResolveDeps as Deps
 
 -- | Differs from Data.Maybe.fromJust by having a mandatory error message
 unsafeUnpackJust :: String -> Maybe a -> a
@@ -17,7 +17,7 @@ unsafeUnpackJust msg result =
     Just v -> v
     Nothing -> error $ "error unpacking " ++ msg ++ " from string"
 
-type FakeDB = Map N.Name [(V.Version, Constraints)]
+type FakeDB = Map N.Name [(V.Version, Deps.Constraints)]
 
 -- | Helper function to write inline test data more succintly
 v :: String -> V.Version
@@ -41,13 +41,13 @@ db1 = Map.fromList
 {-| Extract from stub data list of libraries and their version in
 format solver expects
 -}
-fakeLibraryDb :: FakeDB -> LibraryDB
+fakeLibraryDb :: FakeDB -> Deps.LibraryDB
 fakeLibraryDb = Map.fromList . map (uncurry f) . Map.toList
   where
-    f name ls = (N.toString name, LibraryInfo (N.toString name) "" (map fst ls))
+    f name ls = (N.toString name, Deps.LibraryInfo (N.toString name) "" (map fst ls))
 
 -- | A function passed to solver which "reads" constraints by name and version
-readConstraints :: FakeDB -> N.Name -> V.Version -> ErrorT String IO Constraints
+readConstraints :: FakeDB -> N.Name -> V.Version -> ErrorT String IO Deps.Constraints
 readConstraints db name version =
   let result =
         do versions <- Map.lookup name db
@@ -62,13 +62,13 @@ solveFake :: FakeDB -> N.Name -> V.Version -> ErrorT String IO [(N.Name, V.Versi
 solveFake db name version =
   do constraints <- readConstraints db name version
      let libraryDb = fakeLibraryDb db
-         unreader = runReaderT (solveConstraintsByDeps name version constraints) $
-                    SolverEnv libraryDb (readConstraints db)
-         initialState = SolverState Map.empty Map.empty
+         unreader = runReaderT (Deps.solveConstraintsByDeps name version constraints) $
+                    Deps.SolverEnv libraryDb (readConstraints db)
+         initialState = Deps.SolverState Map.empty Map.empty
      (solved, state) <- runStateT unreader initialState
      case solved of
        False -> throwError "Failed to satisfy all the constraints :-("
-       True -> return $ Map.toList $ ssPinnedVersions state
+       True -> return $ Map.toList $ Deps.ssPinnedVersions state
 
 {-| Check whether given solution is really a solution. Supposed to use as
 a sanity check for existing tests and solver solutions
