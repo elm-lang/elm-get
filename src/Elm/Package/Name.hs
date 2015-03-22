@@ -10,12 +10,14 @@ import qualified Data.Maybe as Maybe
 import System.FilePath ((</>))
 
 
-data Name = Name
-    { user :: String
-    , project :: String
-    }
+data Name =
+    Name
+        { user :: String
+        , project :: String
+        }
+    | Local
+        { absolutePath :: FilePath }
     deriving (Eq, Ord)
-
 
 dummyName :: Name
 dummyName =
@@ -23,23 +25,27 @@ dummyName =
 
 
 toString :: Name -> String
-toString name =
-    user name ++ "/" ++ project name
+toString name = case name of
+    Name user project -> user ++ "/" ++ project
+    Local path -> "file://" ++ path
 
 
 toUrl :: Name -> String
-toUrl name =
-    user name ++ "/" ++ project name
+toUrl name = case name of
+    Name user project -> user ++ "/" ++ project
+    Local path -> "file://" ++ path
 
 
 toFilePath :: Name -> FilePath
-toFilePath name =
-    user name </> project name
+toFilePath name = case name of
+    Name user project -> user </> project
+    Local path -> path
 
 
 fromString :: String -> Maybe Name
 fromString string =
     case break (=='/') string of
+      ( "file:", '/':'/': path@(_:_)) -> Just (Local path)
       ( user@(_:_), '/' : project@(_:_) )
           | all (/='/') project -> Just (Name user project)
       _ -> Nothing
@@ -51,10 +57,17 @@ fromString' string =
 
 
 instance Binary Name where
-    get = Name <$> get <*> get
+    get = do t <- get :: Get Word8
+             case t of
+                0 -> Name <$> get <*> get
+                1 -> Local <$> get
     put (Name user project) =
-        do  put user
+        do  put (0 :: Word8)
+            put user
             put project
+    put (Local path) =
+        do  put (1 :: Word8)
+            put path
 
 
 instance FromJSON Name where
