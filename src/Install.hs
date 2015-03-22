@@ -196,7 +196,7 @@ showDependency name constraint =
 
 initialDescription :: Manager.Manager Desc.Description
 initialDescription =
-  do  let core = N.Name "elm-lang" "core"
+  do  let core = N.Remote "elm-lang" "core"
       version <- latestVersion core
       let desc = Desc.defaultDescription {
           Desc.dependencies = [ (core, Constraint.minimalRangeFrom version) ]

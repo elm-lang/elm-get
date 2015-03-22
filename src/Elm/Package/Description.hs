@@ -41,7 +41,7 @@ data Description = Description
 defaultDescription :: Description
 defaultDescription =
     Description
-    { name = N.Name "USER" "PROJECT"
+    { name = N.Remote "USER" "PROJECT"
     , repo = "https://github.com/USER/PROJECT.git"
     , version = V.initialVersion
     , summary = "helpful summary of your project, less than 80 characters"

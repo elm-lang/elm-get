@@ -11,7 +11,7 @@ import System.FilePath ((</>))
 
 
 data Name =
-    Name
+    Remote
         { user :: String
         , project :: String
         }
@@ -21,24 +21,24 @@ data Name =
 
 dummyName :: Name
 dummyName =
-    Name "USER" "PROJECT"
+    Remote "USER" "PROJECT"
 
 
 toString :: Name -> String
 toString name = case name of
-    Name user project -> user ++ "/" ++ project
+    Remote user project -> user ++ "/" ++ project
     Local path -> "file://" ++ path
 
 
 toUrl :: Name -> String
 toUrl name = case name of
-    Name user project -> user ++ "/" ++ project
+    Remote user project -> user ++ "/" ++ project
     Local path -> "file://" ++ path
 
 
 toFilePath :: Name -> FilePath
 toFilePath name = case name of
-    Name user project -> user </> project
+    Remote user project -> user </> project
     Local path -> path
 
 
@@ -47,7 +47,7 @@ fromString string =
     case break (=='/') string of
       ( "file:", '/':'/': path@(_:_)) -> Just (Local path)
       ( user@(_:_), '/' : project@(_:_) )
-          | all (/='/') project -> Just (Name user project)
+          | all (/='/') project -> Just (Remote user project)
       _ -> Nothing
 
 
@@ -59,9 +59,9 @@ fromString' string =
 instance Binary Name where
     get = do t <- get :: Get Word8
              case t of
-                0 -> Name <$> get <*> get
+                0 -> Remote <$> get <*> get
                 1 -> Local <$> get
-    put (Name user project) =
+    put (Remote user project) =
         do  put (0 :: Word8)
             put user
             put project
