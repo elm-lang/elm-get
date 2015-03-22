@@ -57,16 +57,15 @@ fromString' string =
 
 
 instance Binary Name where
-    get = do t <- get :: Get Word8
+    get = do t <- get :: Get String
              case t of
-                0 -> Remote <$> get <*> get
-                1 -> Local <$> get
+                ("file://") -> Local <$> get
+                user        -> Remote user <$> get
     put (Remote user project) =
-        do  put (0 :: Word8)
-            put user
+        do  put user
             put project
     put (Local path) =
-        do  put (1 :: Word8)
+        do  put ("file://" :: String)
             put path
 
 
