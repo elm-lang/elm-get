@@ -113,18 +113,25 @@ runPlan solution plan =
 -- MODIFY DESCRIPTION
 
 latestVersion :: N.Name -> Manager.Manager V.Version
-latestVersion name =
-  do  versionCache <- Store.readVersionCache
-      case Map.lookup name versionCache of
-        Just versions ->
-            return $ maximum versions
+latestVersion name = case name of
+  N.Remote _ _ ->
+    do  versionCache <- Store.readVersionCache
+        case Map.lookup name versionCache of
+          Just versions ->
+              return $ maximum versions
 
-        Nothing ->
-            throwError $
-            unlines
-            [ "No versions of package '" ++ N.toString name ++ "' were found!"
-            , "Is it spelled correctly?"
-            ]
+          Nothing ->
+              throwError $
+              unlines
+              [ "No versions of package '" ++ N.toString name ++ "' were found!"
+              , "Is it spelled correctly?"
+              ]
+  N.Local path ->
+    do  exists <- liftIO $ doesFileExist (path </> Path.description)
+        case exists of
+          True -> do description <- Desc.read (path </> Path.description)
+                     return $ Desc.version description
+          False -> return $ Desc.version Desc.defaultDescription
 
 
 addConstraint :: Bool -> N.Name -> V.Version -> Desc.Description -> Manager.Manager Desc.Description
