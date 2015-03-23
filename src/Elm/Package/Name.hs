@@ -27,13 +27,13 @@ dummyName =
 toString :: Name -> String
 toString name = case name of
     Remote user project -> user ++ "/" ++ project
-    Local path -> "file://" ++ path
+    Local path -> "local://" ++ path
 
 
 toUrl :: Name -> String
 toUrl name = case name of
     Remote user project -> user ++ "/" ++ project
-    Local path -> "file://" ++ path
+    Local path -> "local://" ++ path
 
 
 toFilePath :: Name -> FilePath
@@ -45,7 +45,7 @@ toFilePath name = case name of
 fromString :: String -> Maybe Name
 fromString string =
     case break (=='/') string of
-      ( "file:", '/':'/': path@(_:_)) -> Just (Local path)
+      ( "local:", '/':'/': path@(_:_)) -> Just (Local path)
       ( user@(_:_), '/' : project@(_:_) )
           | all (/='/') project -> Just (Remote user project)
       _ -> Nothing
@@ -59,13 +59,13 @@ fromString' string =
 instance Binary Name where
     get = do t <- get :: Get String
              case t of
-                ("file://") -> Local <$> get
+                ("local://") -> Local <$> get
                 user        -> Remote user <$> get
     put (Remote user project) =
         do  put user
             put project
     put (Local path) =
-        do  put ("file://" :: String)
+        do  put ("local://" :: String)
             put path
 
 
