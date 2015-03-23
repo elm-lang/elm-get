@@ -106,12 +106,15 @@ getConstraints name version =
 -- VERSIONS
 
 getVersions :: (MonadIO m, MonadError String m, MonadState Store m) => N.Name -> m [V.Version]
-getVersions name =
-  do  cache <- gets versionCache
-      case Map.lookup name cache of
-        Just versions -> return versions
-        Nothing ->
-            throwError noLocalVersions
-  where
-    noLocalVersions =
-        "There are no versions of package '" ++ N.toString name ++ "' on your computer."
+getVersions name = case name of
+  N.Remote _ _ ->
+    do  cache <- gets versionCache
+        case Map.lookup name cache of
+          Just versions -> return versions
+          Nothing ->
+              throwError noLocalVersions
+    where
+      noLocalVersions =
+          "There are no versions of package '" ++ N.toString name ++ "' on your computer."
+  N.Local path -> undefined
+

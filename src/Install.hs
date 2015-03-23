@@ -3,7 +3,7 @@ module Install where
 import Control.Monad.Error
 import qualified Data.List as List
 import qualified Data.Map as Map
-import System.Directory (doesFileExist, removeDirectoryRecursive)
+import System.Directory (canonicalizePath, doesDirectoryExist, doesFileExist, removeDirectoryRecursive)
 import System.FilePath ((</>))
 
 import qualified CommandLine.Helpers as Cmd
@@ -22,31 +22,42 @@ import qualified Store
 
 data Args
     = Everything
-    | Latest N.Name
-    | Exactly N.Name V.Version
+    | Latest String
+    | Exactly String V.Version
 
 
 install :: Bool -> Args -> Manager.Manager ()
 install autoYes args =
-  do  exists <- liftIO (doesFileExist Path.description)
+   do exists <- liftIO (doesFileExist Path.description)
 
       description <-
           case exists of
             True -> Desc.read Path.description
             False -> initialDescription
 
+      let install' name version =
+            do  newDescription <- addConstraint autoYes name version description
+                upgrade autoYes newDescription
+          getName str =
+            do  isFolder <- liftIO (doesDirectoryExist str)
+                case isFolder of
+                    True -> do cPath <- liftIO (canonicalizePath str)
+                               N.fromString'("local://" ++ cPath)
+                    False -> N.fromString' str
+
       case args of
         Everything ->
             upgrade autoYes description
 
-        Latest name ->
-            do  version <- latestVersion name
-                newDescription <- addConstraint autoYes name version description
-                upgrade autoYes newDescription
+        Latest str ->
+          do  name <- getName str
+              version <- latestVersion name
+              install' name version
 
-        Exactly name version ->
-            do  newDescription <- addConstraint autoYes name version description
-                upgrade autoYes newDescription
+        Exactly str version ->
+          do  name <- getName str
+              install' name version
+
 
 
 -- INSTALL EVERYTHING

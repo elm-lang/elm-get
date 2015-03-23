@@ -94,7 +94,8 @@ addConstraints :: Packages -> [(N.Name, C.Constraint)] -> Explorer (Maybe Packag
 addConstraints packages constraints =
     case constraints of
       [] -> return (Just packages)
-      (name, constraint) : rest ->
+      ((N.Local _), _) : rest -> addConstraints packages rest
+      (name@(N.Remote _ _), constraint) : rest ->
           do  versions <- Store.getVersions name
               case filter (C.isSatisfied constraint) versions of
                 [] -> return Nothing
