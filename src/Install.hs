@@ -3,7 +3,7 @@ module Install where
 import Control.Monad.Error
 import qualified Data.List as List
 import qualified Data.Map as Map
-import System.Directory (doesFileExist, removeDirectoryRecursive)
+import System.Directory (canonicalizePath, doesDirectoryExist, doesFileExist, removeDirectoryRecursive)
 import System.FilePath ((</>))
 
 import qualified CommandLine.Helpers as Cmd
@@ -22,31 +22,42 @@ import qualified Store
 
 data Args
     = Everything
-    | Latest N.Name
-    | Exactly N.Name V.Version
+    | Latest String
+    | Exactly String V.Version
 
 
 install :: Bool -> Args -> Manager.Manager ()
 install autoYes args =
-  do  exists <- liftIO (doesFileExist Path.description)
+   do exists <- liftIO (doesFileExist Path.description)
 
       description <-
           case exists of
             True -> Desc.read Path.description
             False -> initialDescription
 
+      let install' name version =
+            do  newDescription <- addConstraint autoYes name version description
+                upgrade autoYes newDescription
+          getName str =
+            do  isFolder <- liftIO (doesDirectoryExist str)
+                case isFolder of
+                    True -> do cPath <- liftIO (canonicalizePath str)
+                               N.fromString'("local://" ++ cPath)
+                    False -> N.fromString' str
+
       case args of
         Everything ->
             upgrade autoYes description
 
-        Latest name ->
-            do  version <- latestVersion name
-                newDescription <- addConstraint autoYes name version description
-                upgrade autoYes newDescription
+        Latest str ->
+          do  name <- getName str
+              version <- latestVersion name
+              install' name version
 
-        Exactly name version ->
-            do  newDescription <- addConstraint autoYes name version description
-                upgrade autoYes newDescription
+        Exactly str version ->
+          do  name <- getName str
+              install' name version
+
 
 
 -- INSTALL EVERYTHING
@@ -113,18 +124,25 @@ runPlan solution plan =
 -- MODIFY DESCRIPTION
 
 latestVersion :: N.Name -> Manager.Manager V.Version
-latestVersion name =
-  do  versionCache <- Store.readVersionCache
-      case Map.lookup name versionCache of
-        Just versions ->
-            return $ maximum versions
+latestVersion name = case name of
+  N.Remote _ _ ->
+    do  versionCache <- Store.readVersionCache
+        case Map.lookup name versionCache of
+          Just versions ->
+              return $ maximum versions
 
-        Nothing ->
-            throwError $
-            unlines
-            [ "No versions of package '" ++ N.toString name ++ "' were found!"
-            , "Is it spelled correctly?"
-            ]
+          Nothing ->
+              throwError $
+              unlines
+              [ "No versions of package '" ++ N.toString name ++ "' were found!"
+              , "Is it spelled correctly?"
+              ]
+  N.Local path ->
+    do  exists <- liftIO $ doesFileExist (path </> Path.description)
+        case exists of
+          True -> do description <- Desc.read (path </> Path.description)
+                     return $ Desc.version description
+          False -> return $ Desc.version Desc.defaultDescription
 
 
 addConstraint :: Bool -> N.Name -> V.Version -> Desc.Description -> Manager.Manager Desc.Description
@@ -196,7 +214,7 @@ showDependency name constraint =
 
 initialDescription :: Manager.Manager Desc.Description
 initialDescription =
-  do  let core = N.Name "elm-lang" "core"
+  do  let core = N.Remote "elm-lang" "core"
       version <- latestVersion core
       let desc = Desc.defaultDescription {
           Desc.dependencies = [ (core, Constraint.untilNextMajor version) ]

@@ -23,7 +23,7 @@ getVersionTags
     :: (MonadIO m, MonadError String m)
     => Name.Name -> m [Version.Version]
 
-getVersionTags (Name.Name user project) =
+getVersionTags (Name.Remote user project) =
   do  response <-
           Http.send url $ \request manager ->
               httpLbs (request {requestHeaders = headers}) manager
@@ -37,6 +37,8 @@ getVersionTags (Name.Name user project) =
     headers =
         [("User-Agent", "elm-package")]
         <> [("Accept", "application/json")]
+
+getVersionTags (Name.Local _) = throwError "Local repository given to GitHub.getVersionTags"
 
 
 instance FromJSON Tags where

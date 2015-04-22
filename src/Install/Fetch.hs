@@ -15,7 +15,7 @@ import qualified Utils.Http as Http
 
 
 package :: (MonadIO m, MonadError String m) => N.Name -> V.Version -> m ()
-package name@(N.Name user _) version =
+package name@(N.Remote user _) version =
   ifNotExists name version $ do
       Http.send zipball extract
       files <- liftIO $ getDirectoryContents "."
@@ -27,6 +27,8 @@ package name@(N.Name user _) version =
   where
     zipball =
         "http://github.com/" ++ N.toUrl name ++ "/zipball/" ++ V.toString version ++ "/"
+
+package name@(N.Local path) version = undefined
 
 
 ifNotExists :: (MonadIO m, MonadError String m) => N.Name -> V.Version -> m () -> m ()

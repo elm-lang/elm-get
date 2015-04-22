@@ -125,18 +125,18 @@ installInfo =
     Opt.info args infoModifier
   where
     args =
-        installWith <$> optional package <*> optional version <*> yes
+        installWith <$> optional packageOrFolder <*> optional version <*> yes
 
     installWith maybeName maybeVersion autoYes =
         case (maybeName, maybeVersion) of
           (Nothing, Nothing) ->
               Install.install autoYes Install.Everything
 
-          (Just name, Nothing) ->
-              Install.install autoYes (Install.Latest name)
+          (Just str, Nothing) ->
+              Install.install autoYes (Install.Latest str)
 
-          (Just name, Just version) ->
-              Install.install autoYes (Install.Exactly name version)
+          (Just str, Just version) ->
+              Install.install autoYes (Install.Exactly str version)
 
           (Nothing, Just version) ->
               throwError $
@@ -167,6 +167,14 @@ package =
         mconcat
         [ Opt.metavar "PACKAGE"
         , Opt.help "A specific package name (e.g. evancz/automaton)"
+        ]
+
+packageOrFolder :: Opt.Parser String
+packageOrFolder =
+    Opt.argument (Just . id) $
+        mconcat
+        [ Opt.metavar "PACKAGE or FOLDER"
+        , Opt.help "A specific package name (e.g. evancz/automaton) or a local folder"
         ]
 
 version :: Opt.Parser V.Version

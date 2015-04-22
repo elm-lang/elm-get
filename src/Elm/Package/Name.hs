@@ -10,38 +10,44 @@ import qualified Data.Maybe as Maybe
 import System.FilePath ((</>))
 
 
-data Name = Name
-    { user :: String
-    , project :: String
-    }
+data Name =
+    Remote
+        { user :: String
+        , project :: String
+        }
+    | Local
+        { absolutePath :: FilePath }
     deriving (Eq, Ord)
-
 
 dummyName :: Name
 dummyName =
-    Name "USER" "PROJECT"
+    Remote "USER" "PROJECT"
 
 
 toString :: Name -> String
-toString name =
-    user name ++ "/" ++ project name
+toString name = case name of
+    Remote user project -> user ++ "/" ++ project
+    Local path -> "local://" ++ path
 
 
 toUrl :: Name -> String
-toUrl name =
-    user name ++ "/" ++ project name
+toUrl name = case name of
+    Remote user project -> user ++ "/" ++ project
+    Local path -> "local://" ++ path
 
 
 toFilePath :: Name -> FilePath
-toFilePath name =
-    user name </> project name
+toFilePath name = case name of
+    Remote user project -> user </> project
+    Local path -> path
 
 
 fromString :: String -> Maybe Name
 fromString string =
     case break (=='/') string of
+      ( "local:", '/':'/': path@(_:_)) -> Just (Local path)
       ( user@(_:_), '/' : project@(_:_) )
-          | all (/='/') project -> Just (Name user project)
+          | all (/='/') project -> Just (Remote user project)
       _ -> Nothing
 
 
@@ -51,10 +57,16 @@ fromString' string =
 
 
 instance Binary Name where
-    get = Name <$> get <*> get
-    put (Name user project) =
+    get = do t <- get :: Get String
+             case t of
+                ("local://") -> Local <$> get
+                user        -> Remote user <$> get
+    put (Remote user project) =
         do  put user
             put project
+    put (Local path) =
+        do  put ("local://" :: String)
+            put path
 
 
 instance FromJSON Name where
