@@ -1,7 +1,7 @@
 { "name" : "Spirals"
 , "version" : 0.1
 , "description" : "Make some spirals"
-, "license" : "BSD3"
+, "license" : "BSD-3-Clause"
 , "author" : "Bill"
 , "contributors" : []
 , "repository" : "http://github.com/bill/Spirals.git"

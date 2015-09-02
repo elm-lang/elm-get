@@ -55,7 +55,7 @@ readDeps = do
   version <- askForVersion (Just "0.1.0") "Initial version? [default: 0.1.0]"
   summary <- askForLimited "Summary" 80 "Summary:"
   description <- askFor "Description:"
-  license <- askForWithDefault "BSD3" "License? [default: BSD3]"
+  license <- askForWithDefault "BSD-3-Clause" "License? [default: BSD-3-Clause]"
   repo <- askFor "Repository address?"
   elmVersion <- askForVersion Nothing "Elm version?"
   return $ D.Description (N.Name userName projectName) version summary description license repo [] [] elmVersion [] []
