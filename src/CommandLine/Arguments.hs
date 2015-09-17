@@ -9,6 +9,7 @@ import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import qualified Bump
 import qualified Diff
+import qualified Initialize
 import qualified Install
 import qualified Manager
 import qualified Publish
@@ -72,7 +73,8 @@ commands =
 
     commandOptions =
         mconcat
-        [ Opt.command "install" installInfo
+        [ Opt.command "initialize" initializeInfo
+        , Opt.command "install" installInfo
         , Opt.command "publish" publishInfo
         , Opt.command "bump" bumpInfo
         , Opt.command "diff" diffInfo
@@ -115,6 +117,18 @@ publishInfo =
         [ Opt.fullDesc
         , Opt.progDesc "Publish your package to the central catalog"
         ]
+
+-- INITIALIZE
+
+initializeInfo :: Opt.ParserInfo (Manager.Manager ())
+initializeInfo =
+    Opt.info args infoModifier
+  where
+    args =
+        installWith <$> optional package <*> optional version <*> yes
+
+    installWith maybeName maybeVersion autoYes =
+        Initialize.initialize autoYes Initialize.Everything   
 
 
 -- INSTALL
