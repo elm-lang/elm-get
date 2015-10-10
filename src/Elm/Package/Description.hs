@@ -26,8 +26,8 @@ import Elm.Utils ((|>))
 
 
 data Description = Description
-    { name :: Package.Name
-    , repo :: String
+    { name :: Maybe Package.Name
+    , repo :: Maybe String
     , version :: Package.Version
     , elmVersion :: C.Constraint
     , summary :: String
@@ -42,8 +42,8 @@ data Description = Description
 defaultDescription :: Description
 defaultDescription =
     Description
-    { name = Package.Name "USER" "PROJECT"
-    , repo = "https://github.com/USER/PROJECT.git"
+    { name = Nothing
+    , repo = Nothing
     , version = Package.initialVersion
     , elmVersion = C.defaultElmVersion
     , summary = "helpful summary of your project, less than 80 characters"
@@ -189,10 +189,11 @@ instance FromJSON Description where
 
             license <- get obj "license" "license information (BSD3 is recommended)"
 
-            repo <- get obj "repository" "a link to the project's GitHub repo"
-            name <- case repoToName repo of
-                      Left err -> fail err
-                      Right nm -> return nm
+            repo <- obj .:? "repository"
+            name <- case fmap repoToName repo of
+                      Just (Left err) -> fail err
+                      Just (Right nm) -> return (Just nm)
+                      Nothing -> return Nothing
 
             exposed <- get obj "exposed-modules" "a list of modules exposed to users"
 

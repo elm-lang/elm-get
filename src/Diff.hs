@@ -4,6 +4,7 @@ import Control.Monad.Error.Class (throwError)
 
 import qualified Catalog
 import qualified CommandLine.Helpers as Cmd
+import qualified Data.Maybe as Maybe
 import qualified Diff.Compare as Compare
 import qualified Diff.Display as Display
 import qualified Docs
@@ -24,7 +25,11 @@ diff :: Range -> Manager.Manager ()
 diff range =
     case range of
         LatestVsActual ->
-            do  name <- Desc.name `fmap` Desc.read Path.description
+            do  desc <- Desc.read Path.description
+                name <-
+                    case Desc.name desc of
+                      Nothing -> throwError noVersions
+                      Just n -> return n
                 newDocs <- Docs.generate
 
                 maybeVersions <- Catalog.versions name
@@ -34,7 +39,11 @@ diff range =
                 computeDiff name latestVersion newDocs Nothing
 
         Since version ->
-            do  name <- Desc.name `fmap` Desc.read Path.description
+            do  desc <- Desc.read Path.description
+                name <-
+                    case Desc.name desc of
+                      Nothing -> throwError noVersions
+                      Just n -> return n
                 newDocs <- Docs.generate
                 computeDiff name version newDocs Nothing
 

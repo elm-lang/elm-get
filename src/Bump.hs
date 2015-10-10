@@ -6,6 +6,7 @@ import qualified Data.List as List
 
 import qualified Catalog
 import qualified CommandLine.Helpers as Cmd
+import qualified Data.Maybe as Maybe
 import qualified Diff.Compare as Compare
 import qualified Docs
 import qualified Elm.Docs as Docs
@@ -18,7 +19,10 @@ import qualified Manager
 bump :: Manager.Manager ()
 bump =
     do  description <- Desc.read Path.description
-        let name = Desc.name description
+        name <-
+            case Desc.name description of
+              Nothing -> throwError "Cannot bump the version number with no package name!  You may need to add a repository to your elm-package.json, something like https://github.com/USER/PROJECT.git"
+              Just n -> return n
         let statedVersion = Desc.version description
 
         newDocs <- Docs.generate
@@ -217,4 +221,3 @@ validBumps publishedVersions =
     patchPoints = Package.filterLatest Package.majorAndMinor publishedVersions
     minorPoints = Package.filterLatest Package._major publishedVersions
     majorPoint = head publishedVersions
-
