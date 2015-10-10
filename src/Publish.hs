@@ -19,7 +19,10 @@ publish :: Manager.Manager ()
 publish =
   do  description <- Desc.read P.description
 
-      let name = Desc.name description
+      name <-
+          case Desc.name description of
+            Nothing -> throwError "Cannot publish with no package name!  You may need to add a repository to your elm-package.json, something like https://github.com/USER/PROJECT.git"
+            Just n -> return n
       let version = Desc.version description
 
       Cmd.out $ unwords [ "Verifying", Package.toString name, Package.versionToString version, "..." ]
@@ -67,7 +70,7 @@ verifyVersion
     -> Desc.Description
     -> Manager.Manager Bump.Validity
 verifyVersion docs description =
-  let name = Desc.name description
+  let name = Maybe.fromMaybe (Package.Name "USER" "PROJECT") (Desc.name description)
       version = Desc.version description
   in
   do  maybeVersions <- Catalog.versions name
