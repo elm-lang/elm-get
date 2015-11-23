@@ -19,6 +19,7 @@ import qualified Install.Plan as Plan
 import qualified Install.Solver as Solver
 import qualified Manager
 import qualified Store
+import qualified Logger
 
 
 data Args
@@ -29,7 +30,8 @@ data Args
 
 install :: Bool -> Bool -> Args -> Manager.Manager ()
 install verbose autoYes args =
-  do  exists <- liftIO (doesFileExist Path.description)
+  do  liftIO (Logger.configure verbose)
+      exists <- liftIO (doesFileExist Path.description)
 
       description <-
           case exists of

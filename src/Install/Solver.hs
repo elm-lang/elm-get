@@ -11,6 +11,7 @@ import qualified Elm.Package as Package
 import qualified Elm.Package.Solution as S
 import qualified Manager
 import qualified Store
+import Logger
 
 
 solve :: [(Package.Name, C.Constraint)] -> Manager.Manager S.Solution
@@ -70,7 +71,9 @@ exploreVersion name version solution remainingPackages =
   do  (elmVersion, constraints) <- Store.getConstraints name version
       if C.isSatisfied elmVersion Compiler.version
         then explore constraints
-        else return Nothing
+        else
+          do  infoM $ (displayNameAndVersion name version) ++ " requires Elm version " ++ (C.toString elmVersion) ++ " but we are on " ++ (Package.versionToString Compiler.version)
+              return Nothing
 
   where
     explore constraints =
@@ -80,7 +83,12 @@ exploreVersion name version solution remainingPackages =
           case all (satisfiedBy solution) overlappingConstraints of
             False -> return Nothing
             True ->
-              do  maybePackages <- addConstraints remainingPackages newConstraints
+              do  case newConstraints of
+                    [] -> return Nothing
+                    someConstraints ->
+                        do  infoM $ (displayNameAndVersion name version) ++ " depends on " ++ (displayConstraints someConstraints)
+                            return Nothing
+                  maybePackages <- addConstraints remainingPackages newConstraints
                   case maybePackages of
                     Nothing -> return Nothing
                     Just extendedPackages ->
@@ -102,5 +110,46 @@ addConstraints packages constraints =
       (name, constraint) : rest ->
           do  versions <- Store.getVersions name
               case filter (C.isSatisfied constraint) versions of
-                [] -> return Nothing
-                vs -> addConstraints (Map.insert name vs packages) rest
+                [] ->
+                  do  infoM $ (Package.toString name) ++ " (" ++ (displayVersions versions) ++ ") has no package version that satisfies " ++ (C.toString constraint)
+                      return Nothing
+                vs ->
+                  do  infoM $ (Package.toString name) ++ " = " ++ (displayVersions vs) ++ (displayNewerVersions (head vs) versions)
+                      addConstraints (Map.insert name vs packages) rest
+
+
+-- LOGGING
+
+
+displayNamedConstraint :: (Package.Name, C.Constraint) -> String
+displayNamedConstraint (name, constraint) =
+  (Package.toString name) ++ ": " ++ (C.toString constraint)
+
+
+displayNameAndVersion :: Package.Name -> Package.Version -> String
+displayNameAndVersion name version =
+  (Package.toString name) ++ " = " ++ (Package.versionToString version)
+
+
+displayConstraints :: [(Package.Name, C.Constraint)] -> String
+displayConstraints constraints =
+  List.intercalate ", " (map displayNamedConstraint constraints)
+
+
+displayVersions :: [Package.Version] -> String
+displayVersions versions =
+  List.intercalate ", " (map Package.versionToString versions)
+
+
+displayNewerVersions :: Package.Version -> [Package.Version] -> String
+displayNewerVersions current versions =
+  do  case newerVersions of
+        [] ->
+          ""
+
+        versions ->
+          " < " ++ (displayVersions versions)
+
+  where
+    newerVersions =
+      filter (\v -> v > current) versions
