@@ -27,8 +27,8 @@ data Args
     | Exactly Package.Name Package.Version
 
 
-install :: Bool -> Args -> Manager.Manager ()
-install autoYes args =
+install :: Bool -> Bool -> Args -> Manager.Manager ()
+install verbose autoYes args =
   do  exists <- liftIO (doesFileExist Path.description)
 
       description <-

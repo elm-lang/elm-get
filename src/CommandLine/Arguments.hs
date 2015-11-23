@@ -88,18 +88,18 @@ installInfo =
     Opt.info args infoModifier
   where
     args =
-        installWith <$> optional package <*> optional version <*> yes
+        installWith <$> optional package <*> optional version <*> yes <*> verbose
 
-    installWith maybeName maybeVersion autoYes =
+    installWith maybeName maybeVersion autoYes verbose =
         case (maybeName, maybeVersion) of
           (Nothing, Nothing) ->
-              Install.install autoYes Install.Everything
+              Install.install verbose autoYes Install.Everything
 
           (Just name, Nothing) ->
-              Install.install autoYes (Install.Latest name)
+              Install.install verbose autoYes (Install.Latest name)
 
           (Just name, Just version) ->
-              Install.install autoYes (Install.Exactly name version)
+              Install.install verbose autoYes (Install.Exactly name version)
 
           (Nothing, Just version) ->
               throwError $
@@ -149,6 +149,15 @@ yes =
         [ Opt.long "yes"
         , Opt.short 'y'
         , Opt.help "Reply 'yes' to all automated prompts."
+        ]
+
+
+verbose :: Opt.Parser Bool
+verbose =
+    Opt.switch $
+        mconcat
+        [ Opt.long "verbose"
+        , Opt.help "Print out detailed log so that you can trace back what went wrong at which point."
         ]
 
 
