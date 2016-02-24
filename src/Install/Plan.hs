@@ -1,5 +1,6 @@
 module Install.Plan where
 
+import Data.Maybe
 import qualified Data.Map as Map
 
 import qualified Elm.Package.Solution as S
@@ -54,10 +55,16 @@ display (Plan installs upgrades removals) latestVersions =
 
     displayInstall (name, version) =
         Package.toString name ++ " " ++ Package.versionToString version
+        ++ versionWarning version (Map.lookup name latestVersions)
 
     displayUpgrade (name, (old, new)) =
         Package.toString name ++ " ("
         ++ Package.versionToString old ++ " => " ++ Package.versionToString new ++ ")"
+        ++ versionWarning new (Map.lookup name latestVersions)
 
     displayRemove (name, _version) =
         Package.toString name
+
+    versionWarning version latestVersion =
+        if Just version >= latestVersion then "" else
+          " (latest package version is " ++ Package.versionToString (fromJust latestVersion) ++ ")"
