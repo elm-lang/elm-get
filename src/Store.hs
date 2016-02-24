@@ -1,4 +1,4 @@
-module Store (Store, getConstraints, getVersions, initialStore, readVersionCache) where
+module Store (Store, getConstraints, getVersions, initialStore, readVersionCache, versionCache) where
 
 import Control.Monad.Except (throwError)
 import Control.Monad.State (StateT)

@@ -39,8 +39,8 @@ isEmpty (Plan installs upgrades removals) =
 
 -- DISPLAY
 
-display :: Plan -> String
-display (Plan installs upgrades removals) =
+display :: Plan -> Map.Map Package.Name Package.Version -> String
+display (Plan installs upgrades removals) latestVersions =
     "\n"
     ++ displayCategory "Install" displayInstall installs
     ++ displayCategory "Upgrade" displayUpgrade upgrades
