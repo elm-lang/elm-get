@@ -20,8 +20,8 @@ import qualified Store
 -- ACTUALLY TRY TO SOLVE
 
 
-solve :: C.Constraint -> [(Package.Name, C.Constraint)] -> Manager.Manager S.Solution
-solve elmConstraint constraints =
+solve :: C.Constraint -> [(Package.Name, C.Constraint)] -> Store.Store -> Manager.Manager S.Solution
+solve elmConstraint constraints store =
   case C.check elmConstraint Compiler.version of
     LT ->
       throwError $ Error.BadElmVersion Compiler.version False elmConstraint
@@ -30,8 +30,7 @@ solve elmConstraint constraints =
       throwError $ Error.BadElmVersion Compiler.version True elmConstraint
 
     EQ ->
-      do  store <- Store.initialStore
-          (maybeSolution, newStore) <- runStateT (exploreConstraints constraints) store
+      do  (maybeSolution, newStore) <- runStateT (exploreConstraints constraints) store
           case maybeSolution of
             Just solution ->
               return solution

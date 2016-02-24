@@ -58,7 +58,9 @@ install autoYes args =
 
 upgrade :: Bool -> Desc.Description -> Manager.Manager ()
 upgrade autoYes desc =
-  do  newSolution <- Solver.solve (Desc.elmVersion desc) (Desc.dependencies desc)
+  do  store <- Store.initialStore
+
+      newSolution <- Solver.solve (Desc.elmVersion desc) (Desc.dependencies desc) store
 
       exists <- liftIO (doesFileExist Path.solvedDependencies)
 
