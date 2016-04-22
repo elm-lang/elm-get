@@ -18,10 +18,11 @@ solve constraints =
     do  store <- Store.initialStore
         maybeSolution <- evalStateT (exploreConstraints constraints) store
         case maybeSolution of
-          Just solution -> return solution
-          Nothing ->
+          Right solution -> return solution
+          Left err ->
               throwError $
-              "Unable to find a set of packages that will work with your constraints."
+                 "Unable to find a set of packages that will work with your constraints: \n"
+              ++ "\t" ++ show err
 
 
 -- EXPLORE CONSTRAINTS
@@ -34,43 +35,56 @@ type Packages =
     Map.Map Package.Name [Package.Version]
 
 
-exploreConstraints :: [(Package.Name, C.Constraint)] -> Explorer (Maybe S.Solution)
+data PackageError
+  = NoCompilerVersion C.Constraint
+  | PackageNotSatisfied
+      Package.Name (Either C.Constraint [Package.Version])
+
+instance Show PackageError where
+  show (NoCompilerVersion c) = "Compiler version: `" ++ C.toString c ++ "` incompatible."
+  show (PackageNotSatisfied name ecvs) = "Package `" ++ Package.toString name ++ "` not satisfiable: "
+    ++ case ecvs of
+         Left c -> C.toString c
+         Right vs -> show $ map Package.versionToString vs
+
+
+exploreConstraints :: [(Package.Name, C.Constraint)] -> Explorer (Either PackageError S.Solution)
 exploreConstraints constraints =
   do  maybeInitialPackages <- addConstraints Map.empty constraints
-      let initialPackages = maybe Map.empty id maybeInitialPackages
+      let initialPackages = either (const Map.empty) id maybeInitialPackages
       explorePackages Map.empty initialPackages
 
 
-explorePackages :: S.Solution -> Packages -> Explorer (Maybe S.Solution)
+explorePackages :: S.Solution -> Packages -> Explorer (Either PackageError S.Solution)
 explorePackages solution availablePackages =
     case Map.minViewWithKey availablePackages of
       Nothing ->
-          return (Just solution)
+          return (Right solution)
 
       Just ((name, versions), remainingPackages) ->
           exploreVersionList name versions solution remainingPackages
 
 
-exploreVersionList :: Package.Name -> [Package.Version] -> S.Solution -> Packages -> Explorer (Maybe S.Solution)
+exploreVersionList :: Package.Name -> [Package.Version] -> S.Solution -> Packages -> Explorer (Either PackageError S.Solution)
 exploreVersionList name versions solution remainingPackages =
     go (reverse (List.sort versions))
   where
-    go versions =
-        case versions of
-          [] -> return Nothing
+    go versions' =
+        case versions' of
+          [] -> return $ Left $ PackageNotSatisfied name (Right versions)
           version : rest ->
               do  maybeSolution <- exploreVersion name version solution remainingPackages
                   case maybeSolution of
-                    Nothing -> go rest
+                    Left _ -> go rest
                     answer -> return answer
 
 
-exploreVersion :: Package.Name -> Package.Version -> S.Solution -> Packages -> Explorer (Maybe S.Solution)
+exploreVersion :: Package.Name -> Package.Version -> S.Solution -> Packages -> Explorer (Either PackageError S.Solution)
 exploreVersion name version solution remainingPackages =
   do  (elmVersion, constraints) <- Store.getConstraints name version
       if C.isSatisfied elmVersion Compiler.version
         then explore constraints
-        else return Nothing
+        else return $ Left (NoCompilerVersion elmVersion)
 
   where
     explore constraints =
@@ -78,13 +92,15 @@ exploreVersion name version solution remainingPackages =
                   List.partition (\(name, _) -> Map.member name solution) constraints
 
           case all (satisfiedBy solution) overlappingConstraints of
-            False -> return Nothing
+            False -> return $
+                         let (name', constraint') = head $ dropWhile (satisfiedBy solution) overlappingConstraints
+                         in  Left $ PackageNotSatisfied name' (Left constraint')
             True ->
               do  maybePackages <- addConstraints remainingPackages newConstraints
                   case maybePackages of
-                    Nothing -> return Nothing
-                    Just extendedPackages ->
+                    Right extendedPackages ->
                         explorePackages (Map.insert name version solution) extendedPackages
+                    Left err -> return $ Left err
 
 
 satisfiedBy :: S.Solution -> (Package.Name, C.Constraint) -> Bool
@@ -95,12 +111,12 @@ satisfiedBy solution (name, constraint) =
           C.isSatisfied constraint version
 
 
-addConstraints :: Packages -> [(Package.Name, C.Constraint)] -> Explorer (Maybe Packages)
+addConstraints :: Packages -> [(Package.Name, C.Constraint)] -> Explorer (Either PackageError Packages)
 addConstraints packages constraints =
     case constraints of
-      [] -> return (Just packages)
+      [] -> return (Right packages)
       (name, constraint) : rest ->
           do  versions <- Store.getVersions name
               case filter (C.isSatisfied constraint) versions of
-                [] -> return Nothing
+                [] -> return $ Left (PackageNotSatisfied name $ Left constraint)
                 vs -> addConstraints (Map.insert name vs packages) rest
