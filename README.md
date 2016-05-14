@@ -3,6 +3,12 @@
 The package manager for Elm. The full catalog of community libraries
 is located at [package.elm-lang.org](http://package.elm-lang.org/).
 
+### Install
+
+Install [Elm Platform][platform] to get `elm-package`.
+
+[platform]: https://github.com/elm-lang/elm-platform#elm-platform
+
 ## Basic Usage
 
 To install a library run:
