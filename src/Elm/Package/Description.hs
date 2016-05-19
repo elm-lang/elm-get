@@ -279,17 +279,20 @@ dropExtension string =
 dropDomain :: String -> Either String String
 dropDomain string =
   let
-    http = "http://github.com/"
-    https = "https://github.com/"
+    httpPrefix = "http://"
+    httpsPrefix = "https://"
+    domains = ["github", "bitbucket", "gitlab"]
+    http = map (\domain -> httpPrefix ++ domain ++ ".com/") domains
+    https = map (\domain -> httpsPrefix ++ domain ++ ".com/") domains
   in
-    if List.isPrefixOf http string then
-        Right (drop (length http) string)
+    if any (`List.isPrefixOf` string) http then
+        Right (drop (length httpPrefix) string)
 
-    else if List.isPrefixOf https string then
-        Right (drop (length https) string)
+    else if any (`List.isPrefixOf` string) https then
+        Right (drop (length httpsPrefix) string)
 
     else
-        Left (repoProblem "The given domain does not start with <https://github.com/>")
+        Left (repoProblem ("The given domain does not start with <" ++ intercalate ", " https ++ ">"))
 
 
 repoProblem :: String -> String
