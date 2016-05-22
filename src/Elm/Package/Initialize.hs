@@ -11,20 +11,21 @@ import qualified Install
 import qualified Manager
 
 
-solution :: (MonadError String m, MonadIO m) => Bool -> m S.Solution
-solution autoYes =
-    runInstall autoYes Install.Everything
+solution :: (MonadError String m, MonadIO m) => Bool -> Bool -> m S.Solution
+solution verbose autoYes =
+    runInstall verbose autoYes Install.Everything
 
 
 runInstall
     :: (MonadError String m, MonadIO m)
     => Bool
+    -> Bool
     -> Install.Args
     -> m S.Solution
-runInstall autoYes args =
+runInstall verbose autoYes args =
   do  either <- liftIO $ do
           env <- Manager.defaultEnvironment
-          Manager.run env (Install.install autoYes args)
+          Manager.run env (Install.install verbose autoYes args)
 
       case either of
         Left err -> throwError err
