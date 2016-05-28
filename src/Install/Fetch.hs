@@ -5,6 +5,7 @@ import Control.Monad.Error.Class (MonadError, throwError)
 import Control.Monad.Trans (MonadIO, liftIO)
 import qualified Codec.Archive.Zip as Zip
 import qualified Data.List as List
+import qualified Data.Text as Text
 import qualified Network.HTTP.Client as Client
 import System.Directory (doesDirectoryExist, getDirectoryContents, renameDirectory)
 import System.FilePath ((</>))
@@ -19,7 +20,7 @@ package name@(Package.Name user _) version =
   ifNotExists name version $ do
       Http.send zipball extract
       files <- liftIO $ getDirectoryContents "."
-      case List.find (List.isPrefixOf user) files of
+      case List.find (isInsensitivePrefixOf user) files of
         Nothing ->
             throwError "Could not download source code successfully."
         Just dir ->
@@ -27,6 +28,10 @@ package name@(Package.Name user _) version =
   where
     zipball =
         "https://github.com/" ++ Package.toUrl name ++ "/zipball/" ++ Package.versionToString version ++ "/"
+    isInsensitivePrefixOf user file =
+        Text.isPrefixOf
+            (Text.toCaseFold (Text.pack user))
+            (Text.toCaseFold (Text.pack file))
 
 
 ifNotExists :: (MonadIO m, MonadError String m) => Package.Name -> Package.Version -> m () -> m ()
