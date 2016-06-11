@@ -9,6 +9,7 @@ is located at [package.elm-lang.org](http://package.elm-lang.org/).
 To install a library run:
 
 ```bash
+elm-package install evancz/elm-http       # directory/package-name
 elm-package install elm-lang/html         # Install latest version
 elm-package install elm-lang/html 1.0.0   # Install version 1.0.0
 ```
