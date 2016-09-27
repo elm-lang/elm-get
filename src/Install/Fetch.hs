@@ -117,7 +117,7 @@ fetch name@(Pkg.Name user project) version =
     do  Http.send (toZipballUrl name version) extract
         files <- liftIO $ getDirectoryContents "."
         let lowercaseFiles = map toLowerCase files
-            packageName = toLowerCase user ++ "-" ++ toLowerCase project
+            packageName = toLowerCase $ user ++ "-" ++ project
         case List.find (List.isPrefixOf packageName) lowercaseFiles of
           Nothing ->
             throwError $ Error.ZipDownloadFailed name version
