@@ -29,13 +29,13 @@ import qualified Utils.Http as Http
 -- PARALLEL FETCHING
 
 
-everything :: [(Pkg.Name, Pkg.Version)] -> Manager.Manager ()
-everything packages =
-  if null packages then return () else everythingHelp packages
+everything :: String -> [(Pkg.Name, Pkg.Version)] -> Manager.Manager ()
+everything host packages =
+  if null packages then return () else everythingHelp host packages
 
 
-everythingHelp :: [(Pkg.Name, Pkg.Version)] -> Manager.Manager ()
-everythingHelp packages =
+everythingHelp :: String -> [(Pkg.Name, Pkg.Version)] -> Manager.Manager ()
+everythingHelp host packages =
   Cmd.inDir Path.packagesDirectory $
     do  eithers <- liftIO $ do
           startMessage (length packages)
@@ -43,7 +43,7 @@ everythingHelp packages =
           resultChan <- Chan.newChan
           forkIO (printLoop isTerminal resultChan)
           withPool 4 $ \pool ->
-            parallel pool (map (prettyFetch resultChan) packages)
+            parallel pool (map (prettyFetch host $ resultChan) packages)
 
         case sequence eithers of
           Right _ ->
@@ -70,9 +70,9 @@ printLoop isTerminal resultChan =
       printLoop isTerminal resultChan
 
 
-prettyFetch :: Chan.Chan Result -> (Pkg.Name, Pkg.Version) -> IO (Either Error.Error ())
-prettyFetch printChan (name, version) =
-  do  either <- Manager.run $ fetch name version
+prettyFetch :: Host -> Chan.Chan Result -> (Pkg.Name, Pkg.Version) -> IO (Either Error.Error ())
+prettyFetch host printChan (name, version) =
+  do  either <- Manager.run $ fetch host name version
       Chan.writeChan printChan (Result name version either)
       return either
 
@@ -110,10 +110,10 @@ toDoc (Result name version either) =
 -- FETCH A PACKAGE
 
 
-fetch :: Pkg.Name -> Pkg.Version -> Manager.Manager ()
-fetch name@(Pkg.Name user project) version =
+fetch :: String -> Pkg.Name -> Pkg.Version -> Manager.Manager ()
+fetch host name@(Pkg.Name user project) version =
   ifNotExists name version $
-    do  Http.send (toZipballUrl name version) extract
+    do  Http.send (toZipballUrl host name version) extract
         files <- liftIO $ getDirectoryContents "."
         case List.find (List.isPrefixOf (user ++ "-" ++ project)) files of
           Nothing ->
@@ -126,9 +126,9 @@ fetch name@(Pkg.Name user project) version =
               renameDirectory dir (home </> Pkg.versionToString version)
 
 
-toZipballUrl :: Pkg.Name -> Pkg.Version -> String
-toZipballUrl name version =
-  "https://github.com/" ++ Pkg.toUrl name
+toZipballUrl :: String -> Pkg.Name -> Pkg.Version -> String
+toZipballUrl host name version =
+  host ++ Pkg.toUrl name
   ++ "/zipball/" ++ Pkg.versionToString version ++ "/"
 
 

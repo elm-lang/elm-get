@@ -93,21 +93,30 @@ installInfo =
     Opt.info args infoModifier
   where
     args =
-        installWith <$> optional package <*> optional version <*> yes
+        installWith
+          <$> optional package
+          <*> optional version
+          <*> optional packageHost
+          <*> yes
 
-    installWith maybeName maybeVersion autoYes =
+    installWith maybeName maybeVersion maybeHost autoYes =
         case (maybeName, maybeVersion) of
           (Nothing, Nothing) ->
-              Install.install autoYes Install.Everything
+              Install.install host autoYes Install.Everything
 
           (Just name, Nothing) ->
-              Install.install autoYes (Install.Latest name)
+              Install.install host autoYes (Install.Latest name)
 
           (Just name, Just version) ->
-              Install.install autoYes (Install.Exactly name version)
+              Install.install host autoYes (Install.Exactly name version)
 
           (Nothing, Just version) ->
               throwError $ Error.BadInstall version
+
+        where
+          host = case maybeHost of
+            Nothing -> "https://github.com"
+            Just v -> v
 
     infoModifier =
         mconcat
@@ -152,6 +161,17 @@ yes =
         [ Opt.long "yes"
         , Opt.short 'y'
         , Opt.help "Reply 'yes' to all automated prompts."
+        ]
+
+
+packageHost :: Opt.Parser String
+packageHost =
+    Opt.strOption $
+        mconcat
+        [ Opt.long "host"
+        , Opt.metavar "HOST"
+        , Opt.help "Use HOST instead of http://github.com for grabbing packages"
+        , Opt.value "http://github.com"
         ]
 
 
