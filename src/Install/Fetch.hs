@@ -70,7 +70,7 @@ printLoop isTerminal resultChan =
       printLoop isTerminal resultChan
 
 
-prettyFetch :: Host -> Chan.Chan Result -> (Pkg.Name, Pkg.Version) -> IO (Either Error.Error ())
+prettyFetch :: String -> Chan.Chan Result -> (Pkg.Name, Pkg.Version) -> IO (Either Error.Error ())
 prettyFetch host printChan (name, version) =
   do  either <- Manager.run $ fetch host name version
       Chan.writeChan printChan (Result name version either)
@@ -128,7 +128,7 @@ fetch host name@(Pkg.Name user project) version =
 
 toZipballUrl :: String -> Pkg.Name -> Pkg.Version -> String
 toZipballUrl host name version =
-  host ++ Pkg.toUrl name
+  host ++ "/" ++ Pkg.toUrl name
   ++ "/zipball/" ++ Pkg.versionToString version ++ "/"
 
 

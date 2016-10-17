@@ -45,3 +45,8 @@ packagesDirectory =
 package :: Package.Name -> Package.Version -> FilePath
 package name version =
     packagesDirectory </> Package.toFilePath name </> Package.versionToString version
+
+{-| Default url for downloading zips from -}
+defaultHostUrl :: String
+defaultHostUrl =
+  "https://github.com"

@@ -115,7 +115,7 @@ installInfo =
 
         where
           host = case maybeHost of
-            Nothing -> "https://github.com"
+            Nothing -> Path.defaultHostUrl
             Just v -> v
 
     infoModifier =
@@ -170,8 +170,8 @@ packageHost =
         mconcat
         [ Opt.long "host"
         , Opt.metavar "HOST"
-        , Opt.help "Use HOST instead of http://github.com for grabbing packages"
-        , Opt.value "http://github.com"
+        , Opt.help "Use HOST instead of https://github.com for grabbing packages"
+        , Opt.value "https://github.com"
         ]
 
 

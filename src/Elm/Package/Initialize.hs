@@ -26,7 +26,7 @@ solution host autoYes =
 
 installEverythingAndGetSolution :: String -> Bool -> Manager.Manager S.Solution
 installEverythingAndGetSolution host autoYes =
-  do  () <- Install.install autoYes host Install.Everything
+  do  () <- Install.install host autoYes Install.Everything
       exists <- liftIO (doesFileExist Path.solvedDependencies)
       if exists
         then S.read Error.CorruptSolution Path.solvedDependencies
