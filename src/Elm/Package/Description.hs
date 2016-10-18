@@ -3,7 +3,7 @@
 module Elm.Package.Description
   ( Description(..)
   , defaultDescription
-  , read, write
+  , read, maybeRead, write
   )
   where
 
@@ -43,6 +43,7 @@ data Description = Description
     , exposed :: [Module.Raw]
     , natives :: Bool
     , dependencies :: [(Package.Name, C.Constraint)]
+    , catalogUrl :: String
     }
 
 
@@ -59,6 +60,7 @@ defaultDescription =
     , exposed = []
     , natives = False
     , dependencies = []
+    , catalogUrl = Path.defaultCatalogUrl
     }
 
 
@@ -71,6 +73,11 @@ read toError path =
   do  json <- liftIO (BS.readFile path)
       either (throwError . toError) return (decodeDescription json)
 
+
+maybeRead :: (MonadIO m, MonadError e m) => FilePath -> m (Either String Description)
+maybeRead path =
+  do  json <- liftIO (BS.readFile path)
+      return (decodeDescription json)
 
 
 -- WRITE
@@ -102,6 +109,7 @@ prettyJSON description =
         , "native-modules"
         , "dependencies"
         , "elm-version"
+        , "catalog-url"
         ]
 
     dependencyKeys =
@@ -148,7 +156,10 @@ instance ToJSON Description where
         , "dependencies" .= jsonDeps (dependencies d)
         , "elm-version" .= elmVersion d
         ] ++ if natives d then ["native-modules" .= True] else []
+          ++ if packageUrl == Path.defaultCatalogUrl then [] else ["catalog-url" .= packageUrl]
     where
+      packageUrl = catalogUrl d
+
       jsonDeps deps =
           Map.fromList $ map (first (T.pack . Package.toString)) deps
 
@@ -202,9 +213,11 @@ getDescription value =
 
           deps <- getDependencies obj
 
+          catalogUrl <- maybe Path.defaultCatalogUrl id <$> obj .:? "catalog-url"
+
           natives <- maybe False id <$> obj .:? "native-modules"
 
-          return $ Description name repo version elmVersion summary license sourceDirs exposed natives deps
+          return $ Description name repo version elmVersion summary license sourceDirs exposed natives deps catalogUrl
 
     _ ->
       fail $

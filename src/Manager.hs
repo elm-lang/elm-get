@@ -7,6 +7,8 @@ module Manager
 
 import Control.Monad.Except (ExceptT, runExceptT)
 import Control.Monad.Reader (ReaderT, runReaderT)
+import Control.Monad.Error (catchError, throwError)
+import Control.Monad.Trans (MonadIO, liftIO)
 import qualified Elm.Compiler as Elm
 import qualified Elm.Package as Pkg
 import qualified Network
@@ -15,6 +17,9 @@ import qualified Network.HTTP.Client.TLS as Http
 import qualified System.Directory as Dir
 import System.FilePath ((</>))
 
+import qualified Elm.Package.Description as Desc
+import qualified Elm.Package.Paths as Path
+
 import qualified Reporting.Error as Error
 
 
@@ -22,12 +27,25 @@ type Manager =
   ExceptT Error.Error (ReaderT Environment IO)
 
 
-run :: Manager a -> IO (Either Error.Error a)
-run manager =
+run :: String -> Manager a -> IO (Either Error.Error a)
+run path manager =
   Network.withSocketsDo $
     do  cacheDirectory <- getCacheDirectory
+
+        let fullDescriptionPath = path </> Path.description
+
+        exists <- liftIO (Dir.doesFileExist fullDescriptionPath)
+
+        catalogUrl <-
+          if exists then
+            do desc <- Desc.maybeRead fullDescriptionPath
+               return (getCatalogUrl desc)
+          else
+              return Path.defaultCatalogUrl
+
         httpManager <- Http.newManager Http.tlsManagerSettings
-        let env = Environment "http://package.elm-lang.org:8018" cacheDirectory httpManager
+
+        let env = Environment catalogUrl cacheDirectory httpManager
         runReaderT (runExceptT manager) env
 
 
@@ -45,3 +63,12 @@ getCacheDirectory =
       let dir = root </> Pkg.versionToString Elm.version </> "package"
       Dir.createDirectoryIfMissing True dir
       return dir
+
+
+getCatalogUrl :: Either a Desc.Description -> String
+getCatalogUrl perhapsDesc =
+  case perhapsDesc of
+    Left _ ->
+      Path.defaultCatalogUrl
+    Right desc ->
+      Desc.catalogUrl desc

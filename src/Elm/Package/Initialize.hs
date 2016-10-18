@@ -12,10 +12,9 @@ import qualified Manager
 import qualified Reporting.Error as Error
 
 
-
 solution :: (MonadIO m) => Bool -> ExceptT String m S.Solution
 solution autoYes =
-  do  result <- liftIO $ Manager.run $ installEverythingAndGetSolution autoYes
+  do  result <- liftIO $ Manager.run "." $ installEverythingAndGetSolution autoYes
       case result of
         Right solution ->
           return solution

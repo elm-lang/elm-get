@@ -72,7 +72,8 @@ printLoop isTerminal resultChan =
 
 prettyFetch :: Chan.Chan Result -> (Pkg.Name, Pkg.Version) -> IO (Either Error.Error ())
 prettyFetch printChan (name, version) =
-  do  either <- Manager.run $ fetch name version
+  do  let path = Path.package name version
+      either <- Manager.run path $ fetch name version
       Chan.writeChan printChan (Result name version either)
       return either
 

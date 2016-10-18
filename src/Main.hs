@@ -3,9 +3,12 @@ module Main where
 import System.Exit (exitFailure)
 import System.IO
 import GHC.IO.Encoding (setLocaleEncoding)
+import Control.Monad.Except (liftIO, throwError)
+
 
 import qualified CommandLine.Arguments as Arguments
 import qualified Manager
+
 import qualified Reporting.Error as Error
 
 
@@ -14,7 +17,7 @@ main =
   do  setLocaleEncoding utf8
 
       manager <- Arguments.parse
-      result <- Manager.run manager
+      result <- Manager.run "." manager
 
       case result of
         Right () ->
