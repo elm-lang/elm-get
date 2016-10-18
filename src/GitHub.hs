@@ -72,4 +72,4 @@ toTag json =
 publicGetVersionTags :: Package.Name -> IO (Either String [Package.Version])
 publicGetVersionTags pkg =
   either (Left . Error.toString) Right
-    <$> Manager.run (getVersionTags pkg)
+    <$> Manager.run "." (getVersionTags pkg)

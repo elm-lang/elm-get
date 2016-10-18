@@ -45,3 +45,8 @@ packagesDirectory =
 package :: Package.Name -> Package.Version -> FilePath
 package name version =
     packagesDirectory </> Package.toFilePath name </> Package.versionToString version
+
+
+defaultCatalogUrl :: String
+defaultCatalogUrl =
+    "http://package.elm-lang.org"
