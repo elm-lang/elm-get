@@ -15,6 +15,7 @@ packageChanges pkgChanges@(D.PackageChanges added changed removed) =
     ++ showAdded
     ++ showRemoved
     ++ showChanged
+    ++ showAPISummary
   where
     showRemoved
         | null removed = ""
@@ -33,8 +34,14 @@ packageChanges pkgChanges@(D.PackageChanges added changed removed) =
     showChanged
         | Map.null changed = ""
         | otherwise =
-            concatMap moduleChanges (Map.toList changed)
+              concatMap moduleChanges (Map.toList changed)
 
+    showAPISummary
+        | show(D.packageChangeMagnitude pkgChanges) == "MAJOR" = ""
+        | show(D.packageChangeMagnitude pkgChanges) == "MINOR" = ""
+        | otherwise =
+            "\n\n"
+            ++ "There are no API changes between these versions.\n"
 
 moduleChanges :: (String, D.ModuleChanges) -> String
 moduleChanges (name, changes) =
