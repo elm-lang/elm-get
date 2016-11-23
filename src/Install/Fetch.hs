@@ -6,6 +6,7 @@ import Control.Concurrent.ParallelIO.Local (withPool, parallel)
 import Control.Monad.Except (liftIO, throwError)
 import qualified Codec.Archive.Zip as Zip
 import qualified Data.List as List
+import Data.Char (toLower)
 import GHC.IO.Handle (hIsTerminalDevice)
 import qualified Network.HTTP.Client as Client
 import System.Directory
@@ -115,7 +116,9 @@ fetch name@(Pkg.Name user project) version =
   ifNotExists name version $
     do  Http.send (toZipballUrl name version) extract
         files <- liftIO $ getDirectoryContents "."
-        case List.find (List.isPrefixOf (user ++ "-" ++ project)) files of
+        let lowercaseFiles = map toLowerCase files
+            packageName = toLowerCase $ user ++ "-" ++ project
+        case List.find (List.isPrefixOf packageName) lowercaseFiles of
           Nothing ->
             throwError $ Error.ZipDownloadFailed name version
 
@@ -144,3 +147,6 @@ extract request manager =
   do  response <- Client.httpLbs request manager
       let archive = Zip.toArchive (Client.responseBody response)
       Zip.extractFilesFromArchive [] archive
+
+toLowerCase :: String -> String
+toLowerCase = map toLower
