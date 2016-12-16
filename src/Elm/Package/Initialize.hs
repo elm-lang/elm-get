@@ -13,9 +13,9 @@ import qualified Reporting.Error as Error
 
 
 
-solution :: (MonadIO m) => Bool -> ExceptT String m S.Solution
-solution autoYes =
-  do  result <- liftIO $ Manager.run $ installEverythingAndGetSolution autoYes
+solution :: (MonadIO m) => String -> Bool -> ExceptT String m S.Solution
+solution host autoYes =
+  do  result <- liftIO $ Manager.run $ installEverythingAndGetSolution host autoYes
       case result of
         Right solution ->
           return solution
@@ -24,9 +24,9 @@ solution autoYes =
           throwError $ Error.toString err
 
 
-installEverythingAndGetSolution :: Bool -> Manager.Manager S.Solution
-installEverythingAndGetSolution autoYes =
-  do  () <- Install.install autoYes Install.Everything
+installEverythingAndGetSolution :: String -> Bool -> Manager.Manager S.Solution
+installEverythingAndGetSolution host autoYes =
+  do  () <- Install.install host autoYes Install.Everything
       exists <- liftIO (doesFileExist Path.solvedDependencies)
       if exists
         then S.read Error.CorruptSolution Path.solvedDependencies

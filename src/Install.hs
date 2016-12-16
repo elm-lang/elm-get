@@ -29,8 +29,8 @@ data Args
     | Exactly Package.Name Package.Version
 
 
-install :: Bool -> Args -> Manager.Manager ()
-install autoYes args =
+install :: String -> Bool -> Args -> Manager.Manager ()
+install host autoYes args =
   do  exists <- liftIO (doesFileExist Path.description)
 
       description <-
@@ -41,24 +41,24 @@ install autoYes args =
 
       case args of
         Everything ->
-            upgrade autoYes description
+            upgrade host autoYes description
 
         Latest name ->
             do  version <- latestVersion name
                 newDescription <- addConstraint autoYes name version description
-                upgrade autoYes newDescription
+                upgrade host autoYes newDescription
 
         Exactly name version ->
             do  newDescription <- addConstraint autoYes name version description
-                upgrade autoYes newDescription
+                upgrade host autoYes newDescription
 
 
 
 -- INSTALL EVERYTHING
 
 
-upgrade :: Bool -> Desc.Description -> Manager.Manager ()
-upgrade autoYes desc =
+upgrade :: String -> Bool -> Desc.Description -> Manager.Manager ()
+upgrade host autoYes desc =
   do  newSolution <- Solver.solve (Desc.elmVersion desc) (Desc.dependencies desc)
 
       exists <- liftIO (doesFileExist Path.solvedDependencies)
@@ -74,7 +74,7 @@ upgrade autoYes desc =
       approve <- liftIO (getApproval autoYes plan)
 
       if approve
-        then runPlan newSolution plan
+        then runPlan host newSolution plan
         else liftIO $ putStrLn "Okay, I did not change anything!"
 
 
@@ -91,8 +91,8 @@ getApproval autoYes plan =
           Cmd.yesOrNo
 
 
-runPlan :: Solution.Solution -> Plan.Plan -> Manager.Manager ()
-runPlan solution plan =
+runPlan :: String -> Solution.Solution -> Plan.Plan -> Manager.Manager ()
+runPlan host solution plan =
   do  let installs =
             Map.toList (Plan.installs plan)
             ++ Map.toList (Map.map snd (Plan.upgrades plan))
@@ -105,7 +105,7 @@ runPlan solution plan =
       liftIO (createDirectoryIfMissing True Path.stuffDirectory)
 
       -- fetch new dependencies
-      Fetch.everything installs
+      Fetch.everything host installs
 
       -- try to build new dependencies
       liftIO (Solution.write Path.solvedDependencies solution)
