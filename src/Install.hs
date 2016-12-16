@@ -59,7 +59,9 @@ install autoYes args =
 
 upgrade :: Bool -> Desc.Description -> Manager.Manager ()
 upgrade autoYes desc =
-  do  newSolution <- Solver.solve (Desc.elmVersion desc) (Desc.dependencies desc)
+  do  store <- Store.initialStore
+
+      newSolution <- Solver.solve (Desc.elmVersion desc) (Desc.dependencies desc) store
 
       exists <- liftIO (doesFileExist Path.solvedDependencies)
 
@@ -71,22 +73,22 @@ upgrade autoYes desc =
 
       let plan = Plan.create oldSolution newSolution
 
-      approve <- liftIO (getApproval autoYes plan)
+      approve <- liftIO (getApproval autoYes plan (Store.versionCache store))
 
       if approve
         then runPlan newSolution plan
         else liftIO $ putStrLn "Okay, I did not change anything!"
 
 
-getApproval :: Bool -> Plan.Plan -> IO Bool
-getApproval autoYes plan =
+getApproval :: Bool -> Plan.Plan -> Map.Map Package.Name [Package.Version] -> IO Bool
+getApproval autoYes plan versionCache =
   case autoYes || Plan.isEmpty plan of
     True ->
       return True
 
     False ->
       do  putStrLn "Some new packages are needed. Here is the upgrade plan."
-          putStrLn (Plan.display plan)
+          putStrLn (Plan.display plan (Map.map maximum versionCache))
           putStr "Do you approve of this plan? [Y/n] "
           Cmd.yesOrNo
 
