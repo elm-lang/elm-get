@@ -36,7 +36,9 @@ catalog path vars =
   do  domain <- asks Manager.catalog
       return $ domain ++ "/" ++ path ++ "?" ++ urlEncodeVars (version : vars)
   where
-    version = ("elm-package-version", showVersion This.version)
+    -- TODO: fix this. temp fix for 0.16 upgraded packages
+    -- was: `showVersion This.version`
+    version = ("elm-package-version", "0.17")
 
 
 
