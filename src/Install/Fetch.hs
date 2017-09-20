@@ -132,7 +132,7 @@ fetch name@(Pkg.Name user project) version =
 toZipballUrl :: Pkg.Name -> Pkg.Version -> String
 toZipballUrl name version =
   "https://github.com/" ++ Pkg.toUrl name
-  ++ "/zipball/" ++ Pkg.versionToString version ++ "/"
+  ++ "/legacy.zip/" ++ Pkg.versionToString version ++ "/"
 
 
 ifNotExists :: Pkg.Name -> Pkg.Version -> Manager.Manager () -> Manager.Manager ()
