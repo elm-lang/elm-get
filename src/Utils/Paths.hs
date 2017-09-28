@@ -16,5 +16,5 @@ library name = libDir </> N.toFilePath name
 
 libraryVersion :: Package.Name -> Package.Version -> FilePath
 libraryVersion name version =
-	library name </> Package.versiontoString version
+	library name </> Package.versionToString version
 
