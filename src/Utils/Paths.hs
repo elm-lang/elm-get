@@ -12,7 +12,7 @@ json = "docs.json"
 index = "index.elm"
 listing = "public" </> "libraries.json"
 
-library name = libDir </> N.toFilePath name
+library name = libDir </> Package.toFilePath name
 
 libraryVersion :: Package.Name -> Package.Version -> FilePath
 libraryVersion name version =
