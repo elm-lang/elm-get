@@ -53,14 +53,14 @@ sendUnsafe url manager handler =
 handleHttpError :: String -> Http.HttpException -> IO (Either Error.Error b)
 handleHttpError url exception =
   case exception of
-    Http.StatusCodeException (Http.Status _code err) headers _ ->
+    Http.HttpExceptionRequest _ (Http.StatusCodeException response _) ->
       return $ Left $ Error.HttpRequestFailed url $ BSC.unpack $
-        case List.lookup "X-Response-Body-Start" headers of
+        case List.lookup "X-Response-Body-Start" (Http.responseHeaders response) of
           Just msg | not (BSC.null msg) ->
             msg
 
           _ ->
-            err
+            Http.statusMessage $ Http.responseStatus response
 
     _ ->
       handleAnyError url exception

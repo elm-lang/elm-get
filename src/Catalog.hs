@@ -101,7 +101,7 @@ register name version =
   do  url <- catalog "register" vars
       Http.send url $ \request manager -> do
           request' <- Multi.formDataBody files request
-          let request'' = request' { Client.responseTimeout = Nothing }
+          let request'' = request' { Client.responseTimeout = Client.responseTimeoutNone }
           Client.httpLbs request'' manager
           return ()
   where
